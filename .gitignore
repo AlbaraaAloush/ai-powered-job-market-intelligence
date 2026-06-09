@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+
+# Editors and IDEs
+.idea/
+.vscode/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test and coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+proxies.txt
+
+# Ad hoc scraper outputs generated at the repo root
+/bayt_jobs_*.json
+/bayt_jobs_*.csv
+/bayt_jobs_*.xlsx
+/linkedin_*_jobs_*.ndjson
+/linkedin_*_jobs_*.jsonl
+/linkedin_*_jobs_*.json
+/linkedin_*_jobs_*.xlsx
