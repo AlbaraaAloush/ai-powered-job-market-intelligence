@@ -16,19 +16,31 @@ from pathlib import Path
 import pandas as pd
 
 HERE = Path(__file__).parent
+DATA_DIR = HERE.parent / "data" / "Bayt" / "12_May_2026"
 
 EN_FILES = {
-    "Qatar": HERE / "bayt_jobs_Qatar_12_May_2026.xlsx",
-    "UAE": HERE / "bayt_jobs_UAE_12_May_2026.xlsx",
-    "Saudi Arabia": HERE / "bayt_jobs_Saudi_Arabia_12_May_2026.xlsx",
+    "Qatar": DATA_DIR / "bayt_jobs_Qatar_12_May_2026.xlsx",
+    "UAE": DATA_DIR / "bayt_jobs_UAE_12_May_2026.xlsx",
+    "Saudi Arabia": DATA_DIR / "bayt_jobs_Saudi_Arabia_12_May_2026.xlsx",
 }
 AR_FILES = {
-    "Qatar": HERE / "bayt_jobs_Qatar_AR_12_May_2026.xlsx",
-    "UAE": HERE / "bayt_jobs_UAE_AR_12_May_2026.xlsx",
-    "Saudi Arabia": HERE / "bayt_jobs_Saudi_Arabia_AR_12_May_2026.xlsx",
+    "Qatar": DATA_DIR / "bayt_jobs_Qatar_AR_12_May_2026.xlsx",
+    "UAE": DATA_DIR / "bayt_jobs_UAE_AR_12_May_2026.xlsx",
+    "Saudi Arabia": DATA_DIR / "bayt_jobs_Saudi_Arabia_AR_12_May_2026.xlsx",
 }
 COUNTRY_ORDER = ["Qatar", "UAE", "Saudi Arabia"]
 COLORS = {"Qatar": "#8B1538", "UAE": "#00732F", "Saudi Arabia": "#FFB300"}
+SKILL_CANONICAL = {
+    "problem-solving": "problem solving",
+    "analytical problem-solving": "problem solving",
+    "communication skills": "communication",
+    "excellent communication": "communication",
+    "client communication": "communication",
+    "stakeholder communication": "communication",
+    "team collaboration": "collaboration",
+    "microsoft office suite": "microsoft office",
+    "ms office": "microsoft office",
+}
 
 
 # -------- normalizers ------------------------------------------------------
@@ -167,6 +179,48 @@ def split_skills(s):
     return out
 
 
+def normalize_skill(skill):
+    skill = re.sub(r"\s+", " ", str(skill).strip().lower())
+    skill = re.sub(r"\s*[-/]\s*", "-", skill)
+    skill = skill.strip(" .,:;|()[]{}")
+    skill = SKILL_CANONICAL.get(skill, skill)
+    return skill.replace("-", " ") if skill in {"problem-solving"} else skill
+
+
+def unique_skills(skills):
+    seen = set()
+    out = []
+    for skill in skills:
+        norm = normalize_skill(skill)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(norm)
+    return out
+
+
+def ordered_counter_dict(counter):
+    return dict(counter.most_common())
+
+
+def short_text(value, limit=240):
+    if pd.isna(value):
+        return None
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def clean_value(value):
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 # -------- Arabic-content signal extractors ---------------------------------
 
 LANG_AR_REQ = re.compile(r"(إجادة|إتقان|فصاحة|يجيد|يتقن)\s*(?:اللغة\s*)?العربية")
@@ -271,6 +325,7 @@ for c in COUNTRY_ORDER:
     en["HasAR"] = en["AR_Content"].notna()
     en["AR_Length"] = en["AR_Content"].fillna("").str.len()
     en["EN_Length"] = en["Job_Description"].fillna("").str.len()
+    en["SkillList"] = en["Job_Skills"].apply(lambda value: unique_skills(split_skills(value)))
     merged[c] = en
 
 all_df = pd.concat(merged.values(), ignore_index=True)
@@ -301,11 +356,11 @@ for c in COUNTRY_ORDER:
     }
 data["kpis"] = kpis
 
-def top_counts(s, n=12):
-    return s.dropna().value_counts().head(n).to_dict()
+def ordered_counts(s):
+    return s.dropna().value_counts().to_dict()
 
 # Categories
-data["categories"] = {c: top_counts(merged[c]["Job_Category"], 12) for c in COUNTRY_ORDER}
+data["categories"] = {c: ordered_counts(merged[c]["Job_Category"]) for c in COUNTRY_ORDER}
 
 # Cross-country category compare (top 15 over all)
 all_categories = (all_df["Job_Category"].value_counts().head(15)).index.tolist()
@@ -359,10 +414,10 @@ data["company_size"] = {
 data["company_size_order"] = size_order
 
 # Top employers
-data["top_companies"] = {c: top_counts(merged[c]["Company_Name"], 15) for c in COUNTRY_ORDER}
+data["top_companies"] = {c: ordered_counts(merged[c]["Company_Name"]) for c in COUNTRY_ORDER}
 
 # Top cities
-data["top_cities"] = {c: top_counts(merged[c]["City"], 12) for c in COUNTRY_ORDER}
+data["top_cities"] = {c: ordered_counts(merged[c]["City"]) for c in COUNTRY_ORDER}
 
 # Gender
 gender_order = ["Open to All", "Female", "Male"]
@@ -375,14 +430,14 @@ data["gender"] = gd
 data["gender_order"] = gender_order
 
 # Top skills (EN)
-def top_skills(df, n=30):
+def top_skills(df):
     bag = Counter()
-    for s in df["Job_Skills"].dropna():
-        for sk in split_skills(s):
+    for skills in df["SkillList"]:
+        for sk in skills:
             bag[sk] += 1
-    return dict(bag.most_common(n))
+    return ordered_counter_dict(bag)
 
-data["skills_all"] = top_skills(all_df, 30)
+data["skills_all"] = top_skills(all_df)
 
 # Salary distribution
 def salary_buckets(df):
@@ -486,6 +541,49 @@ data["desc_length_median"] = {
     for c in COUNTRY_ORDER
 }
 
+# Skills by category and compact posting records for drill-down
+skills_by_country_category = {}
+for c in COUNTRY_ORDER:
+    cat_counts = {}
+    grouped = merged[c].dropna(subset=["Job_Category"]).groupby("Job_Category")
+    for category, sub in grouped:
+        bag = Counter()
+        for skills in sub["SkillList"]:
+            for skill in skills:
+                bag[skill] += 1
+        if bag:
+            cat_counts[category] = ordered_counter_dict(bag)
+    skills_by_country_category[c] = cat_counts
+data["skills_by_country_category"] = skills_by_country_category
+
+records = []
+for c in COUNTRY_ORDER:
+    for _, row in merged[c].iterrows():
+        preview = short_text(row["Job_Description"], 260) or short_text(row["AR_Content"], 260)
+        records.append({
+            "job_id": int(row["Job_ID"]) if pd.notna(row["Job_ID"]) else None,
+            "country": c,
+            "title": clean_value(row["Job_Title"]),
+            "company": clean_value(row["Company_Name"]),
+            "category": clean_value(row["Job_Category"]),
+            "city": clean_value(row["City"]),
+            "location": clean_value(row["Job_Location"]),
+            "salary": clean_value(row["Salary_Range_USD"]),
+            "salary_usd": int(row["SalaryUSD"]) if pd.notna(row["SalaryUSD"]) else None,
+            "employment": clean_value(row["EmploymentNorm"]),
+            "career": clean_value(row["CareerNorm"]),
+            "years": clean_value(row["YearsBucket"]),
+            "education": clean_value(row["EducationNorm"]),
+            "url": clean_value(row["URL"]),
+            "skills": row["SkillList"],
+            "preview": preview,
+            "remote": bool(row["RemoteSignal"]),
+            "nationalization": bool(row["NationalSignal"]),
+            "lang_signal": clean_value(row["LangSignal"]),
+            "has_ar": bool(row["HasAR"]),
+        })
+data["records"] = records
+
 # ---- write HTML -----------------------------------------------------------
 
 payload = json.dumps(data, ensure_ascii=False)
@@ -537,6 +635,21 @@ header h1{margin:0 0 4px;font-size:30px;letter-spacing:-0.6px;
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
 .chart{width:100%;min-height:380px}
 .tall{min-height:540px}
+.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.panel-tools{display:flex;gap:8px;flex-wrap:wrap}
+.dl-btn,.search-btn{
+  background:#0f1724;border:1px solid var(--border);border-radius:8px;color:var(--text);
+  padding:7px 11px;font-size:12px;cursor:pointer;transition:all 0.15s
+}
+.dl-btn:hover,.search-btn:hover{border-color:var(--accent);color:#fff}
+.search-strip{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px}
+.search-input,.category-select{
+  flex:1;min-width:240px;background:#0f1724;color:var(--text);border:1px solid var(--border);
+  border-radius:8px;padding:10px 12px;font-size:13px
+}
+.helper{color:var(--muted);font-size:12px;margin-top:8px}
+.explore{margin-bottom:20px}
+.stat-note{color:var(--muted);font-size:12px;margin-top:10px}
 .insights{background:linear-gradient(135deg,var(--panel-2),#1d2740);border-left:3px solid var(--gold);
   padding:14px 18px;border-radius:6px;margin-top:16px;font-size:14px;line-height:1.7}
 .insights b{color:var(--gold)}
@@ -551,6 +664,25 @@ header h1{margin:0 0 4px;font-size:30px;letter-spacing:-0.6px;
 .toc a{padding:6px 11px;background:var(--panel);border:1px solid var(--border);border-radius:999px;
   color:var(--muted);text-decoration:none;transition:all 0.15s}
 .toc a:hover{color:var(--text);border-color:var(--accent)}
+.modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.66);z-index:1000}
+.modal-backdrop.open{display:flex;align-items:center;justify-content:center}
+.modal{background:#0f1724;border:1px solid #374151;border-radius:14px;width:min(1100px,92vw);max-height:88vh;
+  box-shadow:0 18px 60px rgba(0,0,0,0.45);display:flex;flex-direction:column;overflow:hidden}
+.modal-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.modal-title{font-size:15px;font-weight:600;color:var(--text);flex:1}
+.modal-close{background:none;border:none;color:#94a3b8;font-size:24px;cursor:pointer;line-height:1}
+.modal-close:hover{color:#fff}
+.modal-body{padding:14px 16px 16px;overflow:auto}
+.modal-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.modal-summary{color:var(--muted);font-size:12px;margin:0 0 10px}
+.result-list{display:grid;gap:10px}
+.result-card{border:1px solid var(--border);border-radius:10px;padding:12px;background:#121b2a}
+.result-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.result-title{font-size:14px;font-weight:600;color:var(--text);margin:0 0 6px}
+.result-meta{color:var(--muted);font-size:12px;line-height:1.5}
+.result-preview{font-size:12.5px;line-height:1.5;color:#d6deea;margin-top:8px}
+.pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pill{font-size:11px;padding:3px 8px;border-radius:999px;background:#1b2940;color:#bfdbfe;border:1px solid #284266}
 footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border-top:1px solid var(--border);margin-top:32px}
 @media (max-width:980px){.grid-2,.grid-3,.kpi-row{grid-template-columns:1fr}.kpi-grid{grid-template-columns:1fr 1fr}}
 </style>
@@ -588,6 +720,19 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border
   <a href="#sec14">14. Gender</a>
 </div>
 
+<div class="section explore">
+  <div class="section-head">
+    <div>
+      <h2>Explore Postings</h2>
+      <div class="desc">Search across job title, company, category, city, and skills. Results open in the same drill-down browser used by the interactive charts.</div>
+    </div>
+  </div>
+  <div class="search-strip">
+    <input id="globalSearchInput" class="search-input" type="text" autocomplete="off" placeholder="Search postings, employers, categories, or skills">
+    <button id="globalSearchBtn" class="search-btn">Search</button>
+  </div>
+</div>
+
 <div class="kpi-row" id="kpiCards"></div>
 
 <div class="section" id="sec1">
@@ -601,8 +746,16 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border
 </div>
 
 <div class="section" id="sec2">
-  <h2>2. Top Job Categories by Country</h2>
-  <div class="desc">Hiring concentration by function. Tabs below switch between countries.</div>
+  <div class="section-head">
+    <div>
+      <h2>2. Top Job Categories by Country</h2>
+      <div class="desc">Hiring concentration by function. Tabs below switch between countries. Clicking a bar opens the underlying postings; export returns the full category ranking for the selected country.</div>
+    </div>
+    <div class="panel-tools">
+      <button class="dl-btn" id="exportTopCatsCsv">CSV</button>
+      <button class="dl-btn" id="exportTopCatsJson">JSON</button>
+    </div>
+  </div>
   <div class="tab-row" data-target="chartTopCats">
     <div class="tab active" data-key="Qatar">Qatar</div>
     <div class="tab" data-key="UAE">UAE</div>
@@ -638,6 +791,10 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border
   <div class="grid-2">
     <div id="chartCompanySize" class="chart"></div>
     <div>
+      <div class="panel-tools" style="margin-bottom:10px">
+        <button class="dl-btn" id="exportTopCompaniesCsv">CSV</button>
+        <button class="dl-btn" id="exportTopCompaniesJson">JSON</button>
+      </div>
       <div class="tab-row" data-target="chartTopCompanies">
         <div class="tab active" data-key="Qatar">Qatar</div>
         <div class="tab" data-key="UAE">UAE</div>
@@ -666,6 +823,10 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border
   <div class="grid-2">
     <div id="chartSalaryDist" class="chart"></div>
     <div>
+      <div class="panel-tools" style="margin-bottom:10px">
+        <button class="dl-btn" id="exportSalaryCatCsv">CSV</button>
+        <button class="dl-btn" id="exportSalaryCatJson">JSON</button>
+      </div>
       <div class="tab-row" data-target="chartSalaryCat">
         <div class="tab active" data-key="Qatar">Qatar</div>
         <div class="tab" data-key="UAE">UAE</div>
@@ -732,9 +893,40 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border
 </div>
 
 <div class="section" id="sec13">
-  <h2>13. In-Demand Skills</h2>
-  <div class="desc">Top 30 skills extracted from the Job_Skills field across all 20,535 postings.</div>
+  <div class="section-head">
+    <div>
+      <h2>13. In-Demand Skills</h2>
+      <div class="desc">The chart below shows the top 30 skills visually, but export returns the full ranking across all 20,535 postings. Clicking a skill opens the jobs that mention it.</div>
+    </div>
+    <div class="panel-tools">
+      <button class="dl-btn" id="exportSkillsAllCsv">CSV</button>
+      <button class="dl-btn" id="exportSkillsAllJson">JSON</button>
+    </div>
+  </div>
   <div id="chartSkills" class="chart tall"></div>
+  <div class="stat-note">Visualized: top 30 skills. Export: full ranking.</div>
+  <div class="section-anchor" style="margin-top:26px"></div>
+  <div class="section-head">
+    <div>
+      <h2 style="font-size:18px;margin-bottom:4px">13b. In-Demand Skills by Job Category</h2>
+      <div class="desc">Select a country and job category to see the skills that actually dominate that slice of the market. This is the view needed for comparisons such as Sales vs Engineering.</div>
+    </div>
+    <div class="panel-tools">
+      <button class="dl-btn" id="exportSkillsByCategoryCsv">CSV</button>
+      <button class="dl-btn" id="exportSkillsByCategoryJson">JSON</button>
+    </div>
+  </div>
+  <div class="tab-row" data-target="chartSkillsByCategoryCountry">
+    <div class="tab active" data-key="Qatar">Qatar</div>
+    <div class="tab" data-key="UAE">UAE</div>
+    <div class="tab" data-key="Saudi Arabia">Saudi Arabia</div>
+  </div>
+  <div class="search-strip">
+    <select id="skillsCategorySelect" class="category-select"></select>
+    <input id="skillsCategorySearch" class="search-input" type="text" autocomplete="off" placeholder="Filter category skills or postings within this category">
+    <button id="skillsCategorySearchBtn" class="search-btn">Search</button>
+  </div>
+  <div id="chartSkillsByCategory" class="chart tall"></div>
   <div class="insights" id="insight13"></div>
 </div>
 
@@ -751,6 +943,25 @@ footer{text-align:center;color:var(--muted);font-size:12px;padding:24px 0;border
 </footer>
 </div>
 
+<div class="modal-backdrop" id="drillModal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title" id="drillTitle"></span>
+      <button class="dl-btn" id="drillCsv">CSV</button>
+      <button class="dl-btn" id="drillJson">JSON</button>
+      <button class="modal-close" id="drillClose" title="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tools">
+        <input id="drillSearchInput" class="search-input" type="text" autocomplete="off" placeholder="Filter the current result set">
+        <button id="drillSearchBtn" class="search-btn">Filter</button>
+      </div>
+      <div class="modal-summary" id="drillSummary"></div>
+      <div class="result-list" id="drillBody"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const DATA = __DATA__;
 const COLORS = {"Qatar":"#8B1538","UAE":"#00732F","Saudi Arabia":"#FFB300"};
@@ -764,6 +975,256 @@ const LAYOUT_BASE = {
 };
 function L(extra){ return Object.assign({}, JSON.parse(JSON.stringify(LAYOUT_BASE)), extra||{}); }
 const CFG = {displaylogo:false, responsive:true, modeBarButtonsToRemove:["lasso2d","select2d"]};
+const TOP_CATEGORY_BARS = 12;
+const TOP_COMPANY_BARS = 15;
+const TOP_CITY_BARS = 12;
+const TOP_SKILL_BARS = 30;
+const TOP_CATEGORY_SKILL_BARS = 20;
+let currentTopCatsCountry = "Qatar";
+let currentTopCompaniesCountry = "Qatar";
+let currentSalaryCatCountry = "Qatar";
+let currentNatCountry = "Saudi Arabia";
+let currentSkillsCountry = "Qatar";
+let currentSkillsCategory = null;
+let currentDrill = {title:"", label:"", records:[], filtered:[]};
+
+function topEntries(obj, n){
+  return Object.entries(obj || {}).slice(0, n);
+}
+
+function csvCell(v){
+  const s = (v === null || v === undefined) ? "" : String(v);
+  const needsQuotes = s.includes(",") || s.includes('"') || s.includes("\\n") || s.includes("\\r");
+  return needsQuotes ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function triggerDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadCSV(filename, rows){
+  const text = rows.map(r => r.map(csvCell).join(",")).join("\\n");
+  triggerDownload(new Blob([String.fromCharCode(0xFEFF) + text], {type:"text/csv;charset=utf-8;"}), filename);
+}
+
+function downloadJSON(filename, obj){
+  triggerDownload(new Blob([JSON.stringify(obj, null, 2)], {type:"application/json;charset=utf-8;"}), filename);
+}
+
+function safeName(text){
+  return String(text || "export").replace(/[^\\w.\\-]+/g, "_");
+}
+
+function normalizeText(value){
+  return String(value || "").toLowerCase().trim();
+}
+
+function formatNumber(value){
+  return value === null || value === undefined ? "" : Number(value).toLocaleString();
+}
+
+function recordSearchText(rec){
+  return [
+    rec.title, rec.company, rec.category, rec.city, rec.location, rec.salary, rec.preview,
+    rec.country, rec.career, rec.employment, rec.education, rec.years, (rec.skills || []).join(" ")
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function matchesQuery(rec, query){
+  if(!query) return true;
+  return recordSearchText(rec).includes(query);
+}
+
+function filterRecords(filters){
+  const query = normalizeText(filters.query || "");
+  return DATA.records.filter(rec => {
+    if(filters.country && rec.country !== filters.country) return false;
+    if(filters.category && rec.category !== filters.category) return false;
+    if(filters.company && rec.company !== filters.company) return false;
+    if(filters.city && rec.city !== filters.city) return false;
+    if(filters.skill && !(rec.skills || []).includes(filters.skill)) return false;
+    if(filters.salaryCategory && rec.category !== filters.salaryCategory) return false;
+    return matchesQuery(rec, query);
+  });
+}
+
+function recordRows(records){
+  return [
+    ["job_id","country","title","company","category","city","location","salary","salary_usd","employment","career","years","education","skills","remote","nationalization","lang_signal","url","preview"]
+  ].concat(records.map(rec => [
+    rec.job_id, rec.country, rec.title, rec.company, rec.category, rec.city, rec.location, rec.salary,
+    rec.salary_usd, rec.employment, rec.career, rec.years, rec.education, (rec.skills || []).join(" | "),
+    rec.remote, rec.nationalization, rec.lang_signal, rec.url, rec.preview
+  ]));
+}
+
+function openDrill(title, label, records){
+  currentDrill = {title, label, records: records.slice(), filtered: records.slice()};
+  document.getElementById("drillTitle").textContent = title;
+  document.getElementById("drillSearchInput").value = "";
+  renderDrillResults(records);
+  document.getElementById("drillModal").classList.add("open");
+}
+
+function renderDrillResults(records){
+  currentDrill.filtered = records.slice();
+  const body = document.getElementById("drillBody");
+  const summary = document.getElementById("drillSummary");
+  summary.textContent = `${records.length.toLocaleString()} posting${records.length === 1 ? "" : "s"}`;
+  body.textContent = "";
+  if(!records.length){
+    const empty = document.createElement("div");
+    empty.className = "result-card";
+    empty.textContent = "No postings match the current filter.";
+    body.appendChild(empty);
+    return;
+  }
+  records.forEach(rec => {
+    const card = document.createElement("div");
+    card.className = "result-card";
+    const head = document.createElement("div");
+    head.className = "result-head";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "result-title";
+    if(rec.url){
+      const link = document.createElement("a");
+      link.href = rec.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.style.color = "inherit";
+      link.style.textDecoration = "none";
+      link.textContent = rec.title || "(untitled posting)";
+      title.appendChild(link);
+    } else {
+      title.textContent = rec.title || "(untitled posting)";
+    }
+    const meta = document.createElement("div");
+    meta.className = "result-meta";
+    meta.innerHTML = [
+      rec.company, rec.country, rec.category, rec.city || rec.location, rec.salary, rec.career, rec.years
+    ].filter(Boolean).join(" · ");
+    left.appendChild(title);
+    left.appendChild(meta);
+    head.appendChild(left);
+    card.appendChild(head);
+    if(rec.preview){
+      const preview = document.createElement("div");
+      preview.className = "result-preview";
+      preview.textContent = rec.preview;
+      card.appendChild(preview);
+    }
+    if(rec.skills && rec.skills.length){
+      const pills = document.createElement("div");
+      pills.className = "pill-row";
+      rec.skills.slice(0, 10).forEach(skill => {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = skill;
+        pills.appendChild(pill);
+      });
+      card.appendChild(pills);
+    }
+    body.appendChild(card);
+  });
+}
+
+function closeDrill(){
+  document.getElementById("drillModal").classList.remove("open");
+}
+
+function applyDrillFilter(){
+  const query = normalizeText(document.getElementById("drillSearchInput").value);
+  renderDrillResults(currentDrill.records.filter(rec => matchesQuery(rec, query)));
+}
+
+function exportDrill(format){
+  const name = `postings_${safeName(currentDrill.label || "results")}`;
+  if(format === "json"){
+    downloadJSON(`${name}.json`, currentDrill.filtered);
+  } else {
+    downloadCSV(`${name}.csv`, recordRows(currentDrill.filtered));
+  }
+}
+
+function exportPairs(filename, header, pairs, format){
+  if(format === "json"){
+    downloadJSON(`${filename}.json`, pairs.map(pair => {
+      const out = {};
+      header.forEach((key, idx) => { out[key] = pair[idx]; });
+      return out;
+    }));
+  } else {
+    downloadCSV(`${filename}.csv`, [header].concat(pairs));
+  }
+}
+
+function categoryPairs(country){
+  return Object.entries(DATA.categories[country] || {});
+}
+
+function companyPairs(country){
+  return Object.entries(DATA.top_companies[country] || {});
+}
+
+function salaryCategoryPairs(country){
+  return Object.entries(DATA.salary_by_category[country] || {}).map(([category, stats]) => [category, stats.median, stats.n]);
+}
+
+function skillPairs(){
+  return Object.entries(DATA.skills_all || {});
+}
+
+function skillPairsByCategory(country, category){
+  return Object.entries((((DATA.skills_by_country_category || {})[country] || {})[category]) || {});
+}
+
+function openCategoryDrill(country, category, extraQuery){
+  const records = filterRecords({country, category, query: extraQuery});
+  const suffix = extraQuery ? ` · search "${extraQuery}"` : "";
+  openDrill(`${country} · ${category}${suffix}`, `${country}_${category}`, records);
+}
+
+function openCompanyDrill(country, company){
+  openDrill(`${country} · ${company}`, `${country}_${company}`, filterRecords({country, company}));
+}
+
+function openCityDrill(country, city){
+  openDrill(`${country} · ${city}`, `${country}_${city}`, filterRecords({country, city}));
+}
+
+function openSkillDrill(skill, country, category){
+  const filters = {skill};
+  if(country) filters.country = country;
+  if(category) filters.category = category;
+  const scope = [country, category, skill].filter(Boolean).join(" · ");
+  openDrill(scope || skill, scope || skill, filterRecords(filters));
+}
+
+function wireChartClick(id, cb, labelFromPoint){
+  const gd = document.getElementById(id);
+  if(!gd || !gd.on) return;
+  if(gd.removeAllListeners){
+    gd.removeAllListeners("plotly_click");
+    gd.removeAllListeners("plotly_hover");
+    gd.removeAllListeners("plotly_unhover");
+  }
+  gd.on("plotly_click", data => {
+    const pt = data && data.points && data.points[0];
+    if(!pt) return;
+    const label = labelFromPoint ? labelFromPoint(pt) : (pt.y || pt.x || pt.label);
+    if(label) cb(label, pt);
+  });
+  gd.on("plotly_hover", () => { gd.style.cursor = "pointer"; });
+  gd.on("plotly_unhover", () => { gd.style.cursor = ""; });
+}
 
 // KPI cards
 (function(){
@@ -820,8 +1281,9 @@ const CFG = {displaylogo:false, responsive:true, modeBarButtonsToRemove:["lasso2
 
 // 2. Top categories
 function drawTopCats(country){
-  const obj = DATA.categories[country];
-  const labels = Object.keys(obj), vals = Object.values(obj);
+  currentTopCatsCountry = country;
+  const pairs = topEntries(DATA.categories[country], TOP_CATEGORY_BARS);
+  const labels = pairs.map(p => p[0]), vals = pairs.map(p => p[1]);
   Plotly.newPlot("chartTopCats",
     [{type:"bar", orientation:"h", x:vals.slice().reverse(), y:labels.slice().reverse(),
       marker:{color:COLORS[country]},
@@ -829,6 +1291,7 @@ function drawTopCats(country){
     L({title:`Top 12 job categories — ${country}`,
        margin:{l:160,r:40,t:40,b:40},
        xaxis:{title:"Postings",gridcolor:"#30363d"}}), CFG);
+  wireChartClick("chartTopCats", label => openCategoryDrill(country, label), pt => pt.y);
 }
 drawTopCats("Qatar");
 
@@ -902,8 +1365,9 @@ drawTopCats("Qatar");
 
 // 5b. Top employers
 function drawTopCompanies(country){
-  const obj = DATA.top_companies[country];
-  const labels = Object.keys(obj), vals = Object.values(obj);
+  currentTopCompaniesCountry = country;
+  const pairs = topEntries(DATA.top_companies[country], TOP_COMPANY_BARS);
+  const labels = pairs.map(p => p[0]), vals = pairs.map(p => p[1]);
   Plotly.newPlot("chartTopCompanies",
     [{type:"bar", orientation:"h", x:vals.slice().reverse(), y:labels.slice().reverse(),
       marker:{color:COLORS[country]},
@@ -911,19 +1375,21 @@ function drawTopCompanies(country){
     L({title:`Top 15 employers — ${country}`,
        margin:{l:210,r:40,t:40,b:40},
        xaxis:{title:"# postings",gridcolor:"#30363d"}}), CFG);
+  wireChartClick("chartTopCompanies", label => openCompanyDrill(country, label), pt => pt.y);
 }
 drawTopCompanies("Qatar");
 
 // 6. Cities
 function drawCity(country, divId){
-  const obj = DATA.top_cities[country];
-  const labels = Object.keys(obj), vals = Object.values(obj);
+  const pairs = topEntries(DATA.top_cities[country], TOP_CITY_BARS);
+  const labels = pairs.map(p => p[0]), vals = pairs.map(p => p[1]);
   Plotly.newPlot(divId,
     [{type:"bar", orientation:"h", x:vals.slice().reverse(), y:labels.slice().reverse(),
       marker:{color:COLORS[country]},
       text:vals.slice().reverse().map(v=>v.toLocaleString()), textposition:"outside"}],
     L({title:`${country} — top cities`,
        margin:{l:130,r:30,t:40,b:40}, xaxis:{gridcolor:"#30363d"}}), CFG);
+  wireChartClick(divId, label => openCityDrill(country, label), pt => pt.y);
 }
 drawCity("Qatar","chartCityQatar");
 drawCity("UAE","chartCityUAE");
@@ -944,6 +1410,7 @@ drawCity("Saudi Arabia","chartCityKSA");
 
 // 7b. Salary by category
 function drawSalaryCat(country){
+  currentSalaryCatCountry = country;
   const obj = DATA.salary_by_category[country];
   const labels = Object.keys(obj);
   if(!labels.length){
@@ -960,6 +1427,10 @@ function drawSalaryCat(country){
       textposition:"outside"}],
     L({title:`Median monthly USD by job category — ${country}`,
        margin:{l:160,r:90,t:40,b:40}, xaxis:{title:"USD / month",gridcolor:"#30363d"}}), CFG);
+  wireChartClick("chartSalaryCat", label => {
+    const records = filterRecords({country, category: label}).filter(rec => rec.salary_usd !== null && rec.salary_usd !== undefined);
+    openDrill(`${country} · ${label} · salary-disclosed postings`, `${country}_${label}_salary`, records);
+  }, pt => pt.y);
 }
 drawSalaryCat("Qatar");
 
@@ -1065,6 +1536,7 @@ drawSalaryCat("Qatar");
 
 // 11b. Nationalization by category
 function drawNatCat(country){
+  currentNatCountry = country;
   const obj = DATA.nationalization_by_category[country];
   const labels = Object.keys(obj), vals = Object.values(obj);
   Plotly.newPlot("chartNatCat",
@@ -1096,8 +1568,8 @@ drawNatCat("Saudi Arabia");
 
 // 13. Skills
 {
-  const obj = DATA.skills_all;
-  const labels = Object.keys(obj), vals = Object.values(obj);
+  const pairs = topEntries(DATA.skills_all, TOP_SKILL_BARS);
+  const labels = pairs.map(p => p[0]), vals = pairs.map(p => p[1]);
   Plotly.newPlot("chartSkills",
     [{type:"bar", orientation:"h", x:vals.slice().reverse(), y:labels.slice().reverse(),
       marker:{color:vals.slice().reverse().map((v,i)=>{
@@ -1108,7 +1580,48 @@ drawNatCat("Saudi Arabia");
     L({title:"Top 30 skills demanded across all 20,535 postings",
        margin:{l:240,r:60,t:40,b:40},
        xaxis:{title:"# postings mentioning skill",gridcolor:"#30363d"}}), CFG);
+  wireChartClick("chartSkills", label => openSkillDrill(label), pt => pt.y);
 }
+
+function updateSkillsCategoryOptions(country){
+  const select = document.getElementById("skillsCategorySelect");
+  const pairs = topEntries(DATA.categories[country], 999);
+  const currentExists = pairs.some(pair => pair[0] === currentSkillsCategory);
+  if(!currentExists){
+    currentSkillsCategory = pairs.length ? pairs[0][0] : null;
+  }
+  select.innerHTML = pairs.map(pair => {
+    const selected = pair[0] === currentSkillsCategory ? " selected" : "";
+    return `<option value="${pair[0].replace(/"/g, "&quot;")}"${selected}>${pair[0]} (${pair[1].toLocaleString()})</option>`;
+  }).join("");
+}
+
+function drawSkillsByCategory(country, category){
+  currentSkillsCountry = country;
+  currentSkillsCategory = category;
+  updateSkillsCategoryOptions(country);
+  const activeCategory = currentSkillsCategory;
+  const pairs = topEntries((((DATA.skills_by_country_category || {})[country] || {})[activeCategory]) || {}, TOP_CATEGORY_SKILL_BARS);
+  const labels = pairs.map(p => p[0]), vals = pairs.map(p => p[1]);
+  if(!pairs.length){
+    document.getElementById("chartSkillsByCategory").innerHTML =
+      `<div style="padding:60px;text-align:center;color:#8b98a5">No structured skills were extracted for ${country} · ${activeCategory}.</div>`;
+    return;
+  }
+  Plotly.newPlot("chartSkillsByCategory",
+    [{type:"bar", orientation:"h", x:vals.slice().reverse(), y:labels.slice().reverse(),
+      marker:{color:vals.slice().reverse().map((v,i)=>{
+        const t = vals.length === 1 ? 0 : i / (vals.length - 1);
+        return `rgb(${Math.round(255-t*70)},${Math.round(197-t*80)},${Math.round(71+t*80)})`;
+      })},
+      text:vals.slice().reverse().map(v=>v.toLocaleString()), textposition:"outside"}],
+    L({title:`Top skills for ${activeCategory} — ${country}`,
+       margin:{l:240,r:60,t:40,b:40},
+       xaxis:{title:"# postings mentioning skill",gridcolor:"#30363d"}}), CFG);
+  wireChartClick("chartSkillsByCategory", label => openSkillDrill(label, country, activeCategory), pt => pt.y);
+}
+updateSkillsCategoryOptions(currentSkillsCountry);
+drawSkillsByCategory(currentSkillsCountry, currentSkillsCategory);
 
 // 14. Gender
 {
@@ -1137,7 +1650,87 @@ document.querySelectorAll(".tab-row").forEach(row=>{
     else if(target==="chartTopCompanies") drawTopCompanies(key);
     else if(target==="chartSalaryCat") drawSalaryCat(key);
     else if(target==="chartNatCat") drawNatCat(key);
+    else if(target==="chartSkillsByCategoryCountry") drawSkillsByCategory(key, currentSkillsCategory);
   });
+});
+
+document.getElementById("skillsCategorySelect").addEventListener("change", e => {
+  drawSkillsByCategory(currentSkillsCountry, e.target.value);
+});
+
+function runGlobalSearch(){
+  const query = document.getElementById("globalSearchInput").value.trim();
+  if(!query) return;
+  openDrill(`Search · "${query}"`, `search_${query}`, filterRecords({query}));
+}
+
+function runCategorySearch(){
+  const query = document.getElementById("skillsCategorySearch").value.trim();
+  openCategoryDrill(currentSkillsCountry, currentSkillsCategory, query);
+}
+
+document.getElementById("globalSearchBtn").addEventListener("click", runGlobalSearch);
+document.getElementById("globalSearchInput").addEventListener("keydown", e => {
+  if(e.key === "Enter") runGlobalSearch();
+});
+document.getElementById("skillsCategorySearchBtn").addEventListener("click", runCategorySearch);
+document.getElementById("skillsCategorySearch").addEventListener("keydown", e => {
+  if(e.key === "Enter") runCategorySearch();
+});
+
+document.getElementById("drillCsv").addEventListener("click", () => exportDrill("csv"));
+document.getElementById("drillJson").addEventListener("click", () => exportDrill("json"));
+document.getElementById("drillClose").addEventListener("click", closeDrill);
+document.getElementById("drillModal").addEventListener("click", e => {
+  if(e.target === document.getElementById("drillModal")) closeDrill();
+});
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape") closeDrill();
+});
+document.getElementById("drillSearchBtn").addEventListener("click", applyDrillFilter);
+document.getElementById("drillSearchInput").addEventListener("keydown", e => {
+  if(e.key === "Enter") applyDrillFilter();
+});
+
+document.getElementById("exportTopCatsCsv").addEventListener("click", () => {
+  exportPairs(`categories_${safeName(currentTopCatsCountry)}`, ["category","count"], categoryPairs(currentTopCatsCountry), "csv");
+});
+document.getElementById("exportTopCatsJson").addEventListener("click", () => {
+  exportPairs(`categories_${safeName(currentTopCatsCountry)}`, ["category","count"], categoryPairs(currentTopCatsCountry), "json");
+});
+document.getElementById("exportTopCompaniesCsv").addEventListener("click", () => {
+  exportPairs(`companies_${safeName(currentTopCompaniesCountry)}`, ["company","count"], companyPairs(currentTopCompaniesCountry), "csv");
+});
+document.getElementById("exportTopCompaniesJson").addEventListener("click", () => {
+  exportPairs(`companies_${safeName(currentTopCompaniesCountry)}`, ["company","count"], companyPairs(currentTopCompaniesCountry), "json");
+});
+document.getElementById("exportSalaryCatCsv").addEventListener("click", () => {
+  exportPairs(`salary_by_category_${safeName(currentSalaryCatCountry)}`, ["category","median_salary_usd","salary_disclosures"], salaryCategoryPairs(currentSalaryCatCountry), "csv");
+});
+document.getElementById("exportSalaryCatJson").addEventListener("click", () => {
+  exportPairs(`salary_by_category_${safeName(currentSalaryCatCountry)}`, ["category","median_salary_usd","salary_disclosures"], salaryCategoryPairs(currentSalaryCatCountry), "json");
+});
+document.getElementById("exportSkillsAllCsv").addEventListener("click", () => {
+  exportPairs("skills_all", ["skill","count"], skillPairs(), "csv");
+});
+document.getElementById("exportSkillsAllJson").addEventListener("click", () => {
+  exportPairs("skills_all", ["skill","count"], skillPairs(), "json");
+});
+document.getElementById("exportSkillsByCategoryCsv").addEventListener("click", () => {
+  exportPairs(
+    `skills_${safeName(currentSkillsCountry)}_${safeName(currentSkillsCategory)}`,
+    ["skill","count"],
+    skillPairsByCategory(currentSkillsCountry, currentSkillsCategory),
+    "csv"
+  );
+});
+document.getElementById("exportSkillsByCategoryJson").addEventListener("click", () => {
+  exportPairs(
+    `skills_${safeName(currentSkillsCountry)}_${safeName(currentSkillsCategory)}`,
+    ["skill","count"],
+    skillPairsByCategory(currentSkillsCountry, currentSkillsCategory),
+    "json"
+  );
 });
 
 // Insights
