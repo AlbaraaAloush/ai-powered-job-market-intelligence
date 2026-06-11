@@ -22,7 +22,6 @@ FILTER_COLUMNS = {
     "career_level": "_career_norm",
     "employment_type": "_employment_norm",
     "experience": "experience",
-    "company_size": "company_size",
     "language": "language",
 }
 
@@ -40,6 +39,12 @@ AGGREGATION_DIMENSIONS = {
     "country",
     "salary_bracket",
     "salary_sector",
+    "education",
+    "gender",
+    "remote",
+    "nationalization",
+    "bilingual",
+    "arabic_term",
 }
 
 SEARCH_COLUMNS = (
@@ -51,6 +56,29 @@ SEARCH_COLUMNS = (
     "skills",
     "description",
     "qualifications",
+)
+
+SIGNAL_PATTERNS = {
+    "_remote_signal": re.compile(
+        r"\b(?:remote|hybrid|work(?:ing)? from home|wfh|telecommut(?:e|ing))\b"
+        r"|(?:عن بعد|من المنزل|عمل مرن)",
+        re.IGNORECASE,
+    ),
+    "_national_signal": re.compile(
+        r"\b(?:saudi[sz]ation|emirati[sz]ation|qatar[sz]ation|omanization|"
+        r"bahraini[sz]ation|kuwaiti[sz]ation|nitaqat|"
+        r"(?:saudi|emirati|qatari|omani|bahraini|kuwaiti)\s+nationals?)\b"
+        r"|(?:السعودة|التوطين|القطرنة|التعمين|للمواطنين)",
+        re.IGNORECASE,
+    ),
+}
+
+SIGNAL_TEXT_COLUMNS = (
+    "job_title",
+    "description",
+    "qualifications",
+    "original_content",
+    "_ar_content",
 )
 
 POSTING_COLUMNS = (
@@ -93,6 +121,17 @@ SALARY_LABELS = [
     "$15K+",
 ]
 
+COMPANY_SIZE_BUCKETS = [
+    (50, "1–50"),
+    (200, "51–200"),
+    (500, "201–500"),
+    (1_000, "501–1,000"),
+    (5_000, "1,001–5,000"),
+    (10_000, "5,001–10,000"),
+    (50_000, "10,001–50,000"),
+]
+COMPANY_SIZE_FALLBACK = "50,000+"
+
 
 def _parse_salary_mid(value) -> float | None:
     if value is None or pd.isna(value) or not str(value).strip():
@@ -117,6 +156,29 @@ def _parse_salary_mid(value) -> float | None:
 def _salary_brackets(df: pd.DataFrame) -> pd.Series:
     mids = df["salary"].apply(_parse_salary_mid) if "salary" in df.columns else pd.Series(dtype=float)
     return pd.cut(mids, bins=SALARY_BINS, labels=SALARY_LABELS, right=False)
+
+
+def _normalise_company_size(value) -> str | None:
+    if value is None or pd.isna(value) or not str(value).strip():
+        return None
+    numbers = [
+        int(token.replace(",", ""))
+        for token in re.findall(r"[\d,]+", str(value))
+        if token.replace(",", "").isdigit()
+    ]
+    if not numbers:
+        return None
+    upper_bound = max(numbers)
+    for threshold, label in COMPANY_SIZE_BUCKETS:
+        if upper_bound <= threshold:
+            return label
+    return COMPANY_SIZE_FALLBACK
+
+
+def _company_size_series(df: pd.DataFrame) -> pd.Series:
+    if "company_size" not in df.columns:
+        return pd.Series(index=df.index, dtype=str)
+    return df["company_size"].apply(_normalise_company_size)
 
 
 def _city_series(df: pd.DataFrame) -> pd.Series:
@@ -170,6 +232,12 @@ class DashboardQuery:
     company_size: str = ""
     language: str = ""
     salary_bracket: str = ""
+    education: str = ""
+    gender: str = ""
+    remote: str = ""
+    nationalization: str = ""
+    bilingual: str = ""
+    arabic_term: str = ""
 
 
 class DashboardDataService:
@@ -195,6 +263,53 @@ class DashboardDataService:
         if query.location:
             cities = _city_series(result)
             result = result[cities.str.casefold() == query.location.casefold()]
+
+        if query.company_size:
+            sizes = _company_size_series(result)
+            result = result[sizes.fillna("").str.casefold() == query.company_size.casefold()]
+
+        if query.education and "education" in result.columns:
+            result = result[
+                result["education"].fillna("").astype(str).str.casefold()
+                == query.education.casefold()
+            ]
+
+        if query.gender and "gender" in result.columns:
+            result = result[
+                result["gender"].fillna("").astype(str).str.casefold()
+                == query.gender.casefold()
+            ]
+
+        if query.remote:
+            if query.remote != "remote":
+                raise ValueError("Invalid remote filter")
+            result = result[self._signal_mask(result, "_remote_signal")]
+
+        if query.nationalization:
+            if query.nationalization != "mentioned":
+                raise ValueError("Invalid nationalization filter")
+            result = result[self._signal_mask(result, "_national_signal")]
+
+        if query.bilingual:
+            has_ar = (
+                result["_ar_content"].notna()
+                if "_ar_content" in result.columns
+                else pd.Series(False, index=result.index)
+            )
+            if query.bilingual == "both":
+                result = result[has_ar]
+            elif query.bilingual == "en_only":
+                result = result[~has_ar]
+            else:
+                raise ValueError("Invalid bilingual filter")
+
+        if query.arabic_term:
+            if "_ar_content" not in result.columns:
+                return result.iloc[0:0]
+            result = result[
+                result["_ar_content"].fillna("").astype(str)
+                .str.contains(query.arabic_term, case=False, regex=False)
+            ]
 
         if query.salary_bracket:
             if query.salary_bracket not in SALARY_LABELS:
@@ -228,6 +343,23 @@ class DashboardDataService:
             raise ValueError("Invalid aggregation dimension")
         result = self.filter(query)
         return self._aggregate(result, dimension)
+
+    def supplementary_analytics(self, query: DashboardQuery) -> dict:
+        result = self.filter(query)
+        education = self._value_counts(result, "education", "level")
+        gender = self._value_counts(result, "gender", "preference")
+
+        remote = self._country_signal_rows(result, "_remote_signal")
+        nationalization = self._country_signal_rows(result, "_national_signal")
+
+        return {
+            "education": education,
+            "gender": gender,
+            "remote": remote,
+            "nationalization": nationalization,
+            "bilingual": self._bilingual_rows(result),
+            "arabic_terms": self._arabic_term_rows(result),
+        }
 
     def posting_export(self, query: DashboardQuery, format_name: str) -> tuple[bytes, str]:
         rows = [self._posting(row) for _, row in self.filter(query).iterrows()]
@@ -265,8 +397,31 @@ class DashboardDataService:
                     counter.update(skill.casefold() for skill in _split_skills(value))
             return [{"label": label, "count": count} for label, count in counter.most_common()]
 
+        if dimension == "remote":
+            return [
+                {"label": row["country"], "pct": row["pct"], "count": row["count"]}
+                for row in self._country_signal_rows(df, "_remote_signal")
+            ]
+        if dimension == "nationalization":
+            return [
+                {"label": row["country"], "pct": row["pct"], "count": row["count"]}
+                for row in self._country_signal_rows(df, "_national_signal")
+            ]
+        if dimension == "bilingual":
+            return [
+                {"label": row["country"], **{key: row[key] for key in ("en_only", "ar_only", "both")}}
+                for row in self._bilingual_rows(df)
+            ]
+        if dimension == "arabic_term":
+            return [
+                {"label": row["term"], "count": row["count"]}
+                for row in self._arabic_term_rows(df)
+            ]
+
         if dimension == "location":
             values = _city_series(df)
+        elif dimension == "company_size":
+            values = _company_size_series(df)
         elif dimension == "salary_bracket":
             values = _salary_brackets(df)
         elif dimension == "salary_sector":
@@ -293,9 +448,10 @@ class DashboardDataService:
                 "career_level": "_career_norm",
                 "employment_type": "_employment_norm",
                 "experience": "experience",
-                "company_size": "company_size",
                 "language": "language",
                 "country": "_country",
+                "education": "education",
+                "gender": "gender",
             }[dimension]
             if column not in df.columns:
                 return []
@@ -303,6 +459,77 @@ class DashboardDataService:
 
         counts = values.dropna().loc[lambda series: series.astype(str).str.strip() != ""].value_counts()
         return [{"label": _json_value(label), "count": int(count)} for label, count in counts.items()]
+
+    @staticmethod
+    def _signal_mask(df: pd.DataFrame, column: str) -> pd.Series:
+        explicit = (
+            df[column].fillna(False).astype(bool)
+            if column in df.columns
+            else pd.Series(False, index=df.index)
+        )
+        pattern = SIGNAL_PATTERNS.get(column)
+        available = [name for name in SIGNAL_TEXT_COLUMNS if name in df.columns]
+        if pattern is None or not available:
+            return explicit
+        text = df[available].fillna("").astype(str).agg(" ".join, axis=1)
+        return explicit | text.str.contains(pattern, na=False)
+
+    @staticmethod
+    def _value_counts(df: pd.DataFrame, column: str, label: str) -> list[dict]:
+        if column not in df.columns:
+            return []
+        counts = (
+            df[column].dropna().astype(str)
+            .loc[lambda values: values.str.strip() != ""]
+            .value_counts()
+        )
+        return [{label: value, "count": int(count)} for value, count in counts.items()]
+
+    def _country_signal_rows(self, df: pd.DataFrame, column: str) -> list[dict]:
+        if "_country" not in df.columns:
+            return []
+        rows = []
+        for country, group in df.groupby("_country"):
+            count = int(self._signal_mask(group, column).sum())
+            if count == 0:
+                continue
+            rows.append({
+                "country": country,
+                "pct": round(count / len(group) * 100, 1),
+                "count": count,
+            })
+        return rows
+
+    @staticmethod
+    def _bilingual_rows(df: pd.DataFrame) -> list[dict]:
+        if (
+            "_ar_content" not in df.columns
+            or "_country" not in df.columns
+            or not df["_ar_content"].notna().any()
+        ):
+            return []
+        rows = []
+        for country, group in df.groupby("_country"):
+            both = int(group["_ar_content"].notna().sum())
+            rows.append({
+                "country": country,
+                "en_only": int(len(group) - both),
+                "ar_only": 0,
+                "both": both,
+            })
+        return rows
+
+    @staticmethod
+    def _arabic_term_rows(df: pd.DataFrame) -> list[dict]:
+        if "_ar_content" not in df.columns:
+            return []
+        counter: Counter[str] = Counter()
+        for text in df["_ar_content"].dropna().astype(str):
+            counter.update(re.findall(r"[\u0600-\u06ff]{3,}", text))
+        return [
+            {"term": term, "count": count}
+            for term, count in counter.most_common(30)
+        ]
 
     @staticmethod
     def _serialize(rows: Iterable[dict], format_name: str) -> tuple[bytes, str]:

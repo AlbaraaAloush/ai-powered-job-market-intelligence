@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { fetchDatasets, fetchModels, ModelOption } from '@/lib/api';
+import { fetchDashboard, fetchDatasets, fetchModels, ModelOption } from '@/lib/api';
 import { DumpInfo } from '@/lib/types';
 import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/Dashboard';
@@ -24,16 +24,23 @@ export default function AppPage() {
   const { lang, toggleLang, t } = useLanguage();
 
   useEffect(() => {
-    Promise.all([fetchDatasets(), fetchModels()])
-      .then(([datasets, modelData]) => {
+    fetchDatasets()
+      .then(datasets => {
+        const dumpIds = datasets.dumps.map(d => d._dump_id);
         setDumps(datasets.dumps);
         setTimelines(datasets.timelines);
-        setSelected(datasets.dumps.map(d => d._dump_id));
-        setModels(modelData.models);
-        setModel(modelData.default);
+        setSelected(dumpIds);
+        void fetchDashboard({ dumps: dumpIds }).catch(() => {});
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    fetchModels()
+      .then(modelData => {
+        setModels(modelData.models);
+        setModel(modelData.default);
+      })
+      .catch(console.error);
   }, []);
 
   function toggleDump(id: string) {

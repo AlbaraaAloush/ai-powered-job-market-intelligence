@@ -28,7 +28,9 @@
 * { box-sizing: border-box; }
 
 html, body {
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition-property: background-color, color;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
 }
 
 body {
@@ -36,11 +38,149 @@ body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-::-webkit-scrollbar       { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar       { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Pointer cursor on anything interactive. The UA default for <button> is
+   actually `cursor: default`, and Tailwind v4's preflight doesn't override it —
+   so without this rule, only links and inputs get the pointer hand. The
+   :not(:disabled) guard correctly downgrades disabled buttons. */
+button:not(:disabled),
+[role="button"]:not(:disabled),
+[role="checkbox"]:not([aria-disabled="true"]),
+[role="tab"]:not([aria-disabled="true"]),
+summary,
+label[for],
+select:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* ── Dashboard QoL utilities ────────────────────────────────────────────── */
+
+/* Tabular numerals for any dynamically-updating counter */
+.nums { font-variant-numeric: tabular-nums; }
+
+/* Hairline focus ring used across inputs/buttons in the dashboard */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+/* Soft hover lift used for cards & KPI tiles */
+.hover-lift {
+  transition-property: transform, box-shadow, border-color;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* Subtle pill hover — works in both themes */
+.pill-hover {
+  transition-property: background-color, color, border-color, transform;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.pill-hover:hover { background: var(--card-alt); color: var(--text); }
+.pill-hover:active { transform: scale(0.96); }
+
+/* Active-filter badge that rides on the floating "back to filters" FAB */
+.fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: #fff;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Skeleton shimmer used when refetching with a filter change */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--card) 0%,
+    var(--card-alt) 50%,
+    var(--card) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* Drawer slide-in (right) and overlay fade */
+@keyframes drawerIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.drawer-enter        { animation: drawerIn  220ms cubic-bezier(0.2, 0, 0, 1) both; }
+.drawer-overlay-enter { animation: overlayIn 180ms ease both; }
+
+/* Stagger card fade-in on first paint of a section */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card-in { animation: cardIn 260ms cubic-bezier(0.2, 0, 0, 1) both; }
+
+/* Float-to-top button — appears past first viewport */
+.fab-top {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition-property: opacity, transform;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.fab-top.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* Respect reduced motion globally */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 .card {
   background: var(--card);

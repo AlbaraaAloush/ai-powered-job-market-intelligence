@@ -157,6 +157,12 @@ def _dashboard_query(
     company_size: str = "",
     language: str = "",
     salary_bracket: str = "",
+    education: str = "",
+    gender: str = "",
+    remote: str = "",
+    nationalization: str = "",
+    bilingual: str = "",
+    arabic_term: str = "",
 ) -> DashboardQuery:
     return DashboardQuery(
         dumps=tuple(item for item in dumps.split(",") if item),
@@ -174,6 +180,12 @@ def _dashboard_query(
         company_size=company_size,
         language=language,
         salary_bracket=salary_bracket,
+        education=education,
+        gender=gender,
+        remote=remote,
+        nationalization=nationalization,
+        bilingual=bilingual,
+        arabic_term=arabic_term,
     )
 
 
@@ -552,6 +564,8 @@ def get_dashboard(
         kpi_mom = {"t1": t1, "t2": t2, "c1": c1, "c2": c2,
                    "pct": round((c2 - c1) / c1 * 100, 1) if c1 > 0 else 0}
 
+    supplementary = DashboardDataService(plot_df).supplementary_analytics(DashboardQuery())
+
     return {
         "total":          total,
         "countries":      countries,
@@ -570,6 +584,7 @@ def get_dashboard(
         "companies":      companies_data,
         "country_comparison": country_data,
         "trends":         trend_data,
+        **supplementary,
     }
 
 
@@ -590,6 +605,12 @@ def get_dashboard_postings(
     company_size: str = "",
     language: str = "",
     salary_bracket: str = "",
+    education: str = "",
+    gender: str = "",
+    remote: str = "",
+    nationalization: str = "",
+    bilingual: str = "",
+    arabic_term: str = "",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     format: str = Query(default="", pattern="^(|csv|json)$"),
@@ -600,6 +621,7 @@ def get_dashboard_postings(
         dumps, query, country, timeline, sector, company, title, skill, location,
         career_level, employment_type, experience, company_size, language,
         salary_bracket,
+        education, gender, remote, nationalization, bilingual, arabic_term,
     )
     try:
         if format:
@@ -633,6 +655,12 @@ def get_dashboard_aggregation(
     company_size: str = "",
     language: str = "",
     salary_bracket: str = "",
+    education: str = "",
+    gender: str = "",
+    remote: str = "",
+    nationalization: str = "",
+    bilingual: str = "",
+    arabic_term: str = "",
     format: str = Query(default="", pattern="^(|csv|json)$"),
 ):
     """Return or export a complete allowlisted aggregation for a dashboard chart."""
@@ -643,6 +671,7 @@ def get_dashboard_aggregation(
         dumps, query, country, timeline, sector, company, title, skill, location,
         career_level, employment_type, experience, company_size, language,
         salary_bracket,
+        education, gender, remote, nationalization, bilingual, arabic_term,
     )
     try:
         if format:

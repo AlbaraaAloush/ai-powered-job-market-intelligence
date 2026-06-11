@@ -4,6 +4,8 @@ import {
 } from './types';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const dashboardMemoryCache = new Map<string, DashboardData>();
+const dashboardRequests = new Map<string, Promise<DashboardData>>();
 
 export async function fetchDatasets(): Promise<DatasetsResponse> {
   const r = await fetch(`${API}/api/datasets`);
@@ -18,15 +20,47 @@ export interface DashboardParams {
   timeline?: string;
 }
 
-export async function fetchDashboard(params: DashboardParams): Promise<DashboardData> {
+export async function fetchDashboard(params: DashboardParams, signal?: AbortSignal): Promise<DashboardData> {
   const q = new URLSearchParams();
   if (params.dumps.length) q.set('dumps', params.dumps.join(','));
   if (params.country  && params.country  !== 'All') q.set('country',  params.country);
   if (params.sector   && params.sector   !== 'All') q.set('sector',   params.sector);
   if (params.timeline && params.timeline !== 'All') q.set('timeline', params.timeline);
-  const r = await fetch(`${API}/api/dashboard?${q}`);
-  if (!r.ok) throw new Error('Failed to fetch dashboard data');
-  return r.json();
+  const url = `${API}/api/dashboard?${q}`;
+  const cached = dashboardMemoryCache.get(url);
+  if (cached) return cached;
+
+  const storageKey = `dashboard:${url}`;
+  if (typeof window !== 'undefined') {
+    const stored = window.sessionStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as DashboardData;
+        dashboardMemoryCache.set(url, parsed);
+        return parsed;
+      } catch {
+        window.sessionStorage.removeItem(storageKey);
+      }
+    }
+  }
+
+  const pending = dashboardRequests.get(url);
+  if (pending) return pending;
+
+  const request = fetch(url, { signal })
+    .then(async r => {
+      if (!r.ok) throw new Error('Failed to fetch dashboard data');
+      const result = await r.json() as DashboardData;
+      dashboardMemoryCache.set(url, result);
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(storageKey, JSON.stringify(result));
+      }
+      return result;
+    })
+    .finally(() => dashboardRequests.delete(url));
+
+  dashboardRequests.set(url, request);
+  return request;
 }
 
 function dashboardQuery(dumps: string[], scope: DashboardScope = {}) {

@@ -39,12 +39,23 @@ export interface DashboardData {
     growing: { sector: string; count_t1: number; count_t2: number; pct_change: number }[];
     declining: { sector: string; count_t1: number; count_t2: number; pct_change: number }[];
   } | null;
+
+  // ── Bilingual / GCC-specific signals (optional — present when backend supports them).
+  //    Cards render only when the array exists and is non-empty, so the dashboard
+  //    degrades gracefully if a deployment hasn't shipped these fields yet.
+  education?:       { level: string; count: number }[];
+  gender?:          { preference: string; count: number }[];
+  remote?:          { country: string; pct: number; count: number }[];
+  nationalization?: { country: string; pct: number; count: number }[];
+  bilingual?:       { country: string; en_only: number; ar_only: number; both: number }[];
+  arabic_terms?:    { term: string; count: number }[];
 }
 
 export type DashboardDimension =
   | 'sector' | 'skill' | 'company' | 'title' | 'location'
   | 'career_level' | 'employment_type' | 'experience' | 'company_size'
-  | 'language' | 'country' | 'salary_bracket' | 'salary_sector';
+  | 'language' | 'country' | 'salary_bracket' | 'salary_sector'
+  | 'education' | 'gender' | 'remote' | 'nationalization' | 'bilingual' | 'arabic_term';
 
 export interface DashboardScope {
   query?: string;
@@ -61,6 +72,12 @@ export interface DashboardScope {
   company_size?: string;
   language?: string;
   salary_bracket?: string;
+  education?: string;
+  gender?: string;
+  remote?: string;          // 'remote' | 'hybrid' | 'onsite'
+  nationalization?: string; // 'mentioned' | country code
+  bilingual?: string;       // 'en_only' | 'ar_only' | 'both'
+  arabic_term?: string;
 }
 
 export interface JobPosting {
