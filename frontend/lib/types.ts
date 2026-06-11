@@ -41,6 +41,58 @@ export interface DashboardData {
   } | null;
 }
 
+export type DashboardDimension =
+  | 'sector' | 'skill' | 'company' | 'title' | 'location'
+  | 'career_level' | 'employment_type' | 'experience' | 'company_size'
+  | 'language' | 'country' | 'salary_bracket' | 'salary_sector';
+
+export interface DashboardScope {
+  query?: string;
+  country?: string;
+  timeline?: string;
+  sector?: string;
+  company?: string;
+  title?: string;
+  skill?: string;
+  location?: string;
+  career_level?: string;
+  employment_type?: string;
+  experience?: string;
+  company_size?: string;
+  language?: string;
+  salary_bracket?: string;
+}
+
+export interface JobPosting {
+  job_id?: string | number;
+  title?: string;
+  company?: string;
+  sector?: string;
+  category?: string;
+  location?: string;
+  salary?: string;
+  employment_type?: string;
+  career_level?: string;
+  experience?: string;
+  company_size?: string;
+  description?: string;
+  qualifications?: string;
+  education?: string;
+  language?: string;
+  url?: string;
+  post_date?: string;
+  country?: string;
+  timeline?: string;
+  skills: string[];
+}
+
+export interface PostingPage {
+  total: number;
+  page: number;
+  page_size: number;
+  items: JobPosting[];
+}
+
 export interface SemanticHit {
   title: string;
   company: string;

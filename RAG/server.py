@@ -23,9 +23,9 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -38,6 +38,7 @@ from vector_store import VectorStore
 from analytics import AnalyticsEngine
 from rag_engine import RAGEngine
 from session import SessionStore
+from dashboard_service import AGGREGATION_DIMENSIONS, DashboardDataService, DashboardQuery
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +139,42 @@ def _filter_by_dumps(df, dump_ids: list[str]):
     if not dump_ids or "_dump_id" not in df.columns:
         return df
     return df[df["_dump_id"].isin(dump_ids)]
+
+
+def _dashboard_query(
+    dumps: str = "",
+    query: str = "",
+    country: str = "",
+    timeline: str = "",
+    sector: str = "",
+    company: str = "",
+    title: str = "",
+    skill: str = "",
+    location: str = "",
+    career_level: str = "",
+    employment_type: str = "",
+    experience: str = "",
+    company_size: str = "",
+    language: str = "",
+    salary_bracket: str = "",
+) -> DashboardQuery:
+    return DashboardQuery(
+        dumps=tuple(item for item in dumps.split(",") if item),
+        query=query,
+        country=country,
+        timeline=timeline,
+        sector=sector,
+        company=company,
+        title=title,
+        skill=skill,
+        location=location,
+        career_level=career_level,
+        employment_type=employment_type,
+        experience=experience,
+        company_size=company_size,
+        language=language,
+        salary_bracket=salary_bracket,
+    )
 
 
 def _parse_salary_mid(val) -> float | None:
@@ -534,6 +571,92 @@ def get_dashboard(
         "country_comparison": country_data,
         "trends":         trend_data,
     }
+
+
+@app.get("/api/dashboard/postings")
+def get_dashboard_postings(
+    dumps: str = "",
+    query: str = Query(default="", max_length=300),
+    country: str = "",
+    timeline: str = "",
+    sector: str = "",
+    company: str = "",
+    title: str = "",
+    skill: str = "",
+    location: str = "",
+    career_level: str = "",
+    employment_type: str = "",
+    experience: str = "",
+    company_size: str = "",
+    language: str = "",
+    salary_bracket: str = "",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    format: str = Query(default="", pattern="^(|csv|json)$"),
+):
+    """Search and browse source postings under the active dashboard scope."""
+    service = DashboardDataService(_state["df"])
+    dashboard_query = _dashboard_query(
+        dumps, query, country, timeline, sector, company, title, skill, location,
+        career_level, employment_type, experience, company_size, language,
+        salary_bracket,
+    )
+    try:
+        if format:
+            payload, media_type = service.posting_export(dashboard_query, format)
+            filename = f"dashboard_postings.{format}"
+            return Response(
+                payload,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        return service.postings(dashboard_query, page, page_size)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/dashboard/aggregation")
+def get_dashboard_aggregation(
+    dimension: str = Query(...),
+    dumps: str = "",
+    query: str = Query(default="", max_length=300),
+    country: str = "",
+    timeline: str = "",
+    sector: str = "",
+    company: str = "",
+    title: str = "",
+    skill: str = "",
+    location: str = "",
+    career_level: str = "",
+    employment_type: str = "",
+    experience: str = "",
+    company_size: str = "",
+    language: str = "",
+    salary_bracket: str = "",
+    format: str = Query(default="", pattern="^(|csv|json)$"),
+):
+    """Return or export a complete allowlisted aggregation for a dashboard chart."""
+    if dimension not in AGGREGATION_DIMENSIONS:
+        raise HTTPException(status_code=400, detail="Invalid aggregation dimension")
+    service = DashboardDataService(_state["df"])
+    dashboard_query = _dashboard_query(
+        dumps, query, country, timeline, sector, company, title, skill, location,
+        career_level, employment_type, experience, company_size, language,
+        salary_bracket,
+    )
+    try:
+        if format:
+            payload, media_type = service.aggregation_export(dashboard_query, dimension, format)
+            filename = f"dashboard_{dimension}.{format}"
+            return Response(
+                payload,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        rows = service.aggregation(dashboard_query, dimension)
+        return {"dimension": dimension, "total_values": len(rows), "rows": rows}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/chat")

@@ -1,4 +1,7 @@
-import { DashboardData, DatasetsResponse, RetrievalInfo } from './types';
+import {
+  DashboardData, DashboardDimension, DashboardScope, DatasetsResponse,
+  PostingPage, RetrievalInfo,
+} from './types';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -24,6 +27,42 @@ export async function fetchDashboard(params: DashboardParams): Promise<Dashboard
   const r = await fetch(`${API}/api/dashboard?${q}`);
   if (!r.ok) throw new Error('Failed to fetch dashboard data');
   return r.json();
+}
+
+function dashboardQuery(dumps: string[], scope: DashboardScope = {}) {
+  const q = new URLSearchParams();
+  if (dumps.length) q.set('dumps', dumps.join(','));
+  Object.entries(scope).forEach(([key, value]) => {
+    if (value) q.set(key, value);
+  });
+  return q;
+}
+
+export async function fetchDashboardPostings(
+  dumps: string[],
+  scope: DashboardScope,
+  page: number,
+  pageSize = 20,
+): Promise<PostingPage> {
+  const q = dashboardQuery(dumps, scope);
+  q.set('page', String(page));
+  q.set('page_size', String(pageSize));
+  const r = await fetch(`${API}/api/dashboard/postings?${q}`);
+  if (!r.ok) throw new Error('Failed to fetch matching postings');
+  return r.json();
+}
+
+export function dashboardExportUrl(
+  kind: 'postings' | 'aggregation',
+  dumps: string[],
+  scope: DashboardScope,
+  format: 'csv' | 'json',
+  dimension?: DashboardDimension,
+) {
+  const q = dashboardQuery(dumps, scope);
+  q.set('format', format);
+  if (dimension) q.set('dimension', dimension);
+  return `${API}/api/dashboard/${kind}?${q}`;
 }
 
 export interface ModelOption {

@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { fetchDashboard } from '@/lib/api';
-import { DashboardData } from '@/lib/types';
+import { dashboardExportUrl } from '@/lib/api';
+import { DashboardData, DashboardDimension, DashboardScope } from '@/lib/types';
+import {
+  DashboardSearch, DrilldownRequest, PostingDrawer,
+} from '@/components/dashboard/DashboardInteractions';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -45,8 +49,9 @@ function tt(extra?: object) {
 }
 
 /** Single-series horizontal bar (sorted descending = top item largest) */
-function HBar({ data, x, y, color = '#6c63ff', height }: {
+function HBar({ data, x, y, color = '#6c63ff', height, onSelect }: {
   data: Record<string, unknown>[]; x: string; y: string; color?: string; height: number;
+  onSelect?: (row: Record<string, unknown>) => void;
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -58,6 +63,8 @@ function HBar({ data, x, y, color = '#6c63ff', height }: {
           tick={Y_STYLE} axisLine={false} tickLine={false} />
         {tt()}
         <Bar dataKey={x} fill={color} radius={[0, 4, 4, 0]}
+          cursor={onSelect ? 'pointer' : undefined}
+          onClick={entry => onSelect?.(entry.payload as Record<string, unknown>)}
           label={{ position: 'right', fill: 'var(--muted)', fontSize: 10,
             formatter: (v: unknown) => Number(v) >= 1000 ? `${(Number(v)/1000).toFixed(1)}k` : String(v) }} />
       </BarChart>
@@ -95,7 +102,10 @@ function HBarStacked({ rows, timelines, tlColors, height }: {
 }
 
 /** Vertical bar */
-function VBar({ data, x, y, height }: { data: Record<string,unknown>[]; x: string; y: string; height: number }) {
+function VBar({ data, x, y, height, onSelect }: {
+  data: Record<string,unknown>[]; x: string; y: string; height: number;
+  onSelect?: (row: Record<string, unknown>) => void;
+}) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ left: 0, right: 8, top: 4, bottom: 75 }}>
@@ -104,7 +114,8 @@ function VBar({ data, x, y, height }: { data: Record<string,unknown>[]; x: strin
           axisLine={false} tickLine={false} interval={0} />
         <YAxis tick={AX_STYLE} axisLine={false} tickLine={false} />
         {tt()}
-        <Bar dataKey={y} radius={[4, 4, 0, 0]}>
+        <Bar dataKey={y} radius={[4, 4, 0, 0]} cursor={onSelect ? 'pointer' : undefined}
+          onClick={entry => onSelect?.(entry.payload as Record<string, unknown>)}>
           {data.map((_, i) => <Cell key={i} fill={CAT_PALETTE[i % CAT_PALETTE.length]} />)}
         </Bar>
       </BarChart>
@@ -113,11 +124,16 @@ function VBar({ data, x, y, height }: { data: Record<string,unknown>[]; x: strin
 }
 
 /** Donut */
-function Donut({ data, name, value }: { data: Record<string,unknown>[]; name: string; value: string }) {
+function Donut({ data, name, value, onSelect }: {
+  data: Record<string,unknown>[]; name: string; value: string;
+  onSelect?: (row: Record<string, unknown>) => void;
+}) {
   return (
     <ResponsiveContainer width="100%" height={260}>
       <PieChart>
         <Pie data={data} dataKey={value} nameKey={name}
+          cursor={onSelect ? 'pointer' : undefined}
+          onClick={entry => onSelect?.(entry.payload as Record<string, unknown>)}
           cx="50%" cy="44%" outerRadius={88} innerRadius={36}
           label={({ name: n, percent }) => (percent ?? 0) > 0.04 ? `${n} ${((percent ?? 0)*100).toFixed(0)}%` : ''}
           labelLine={false}>
@@ -132,13 +148,26 @@ function Donut({ data, name, value }: { data: Record<string,unknown>[]; name: st
 
 // ── Card wrapper ──────────────────────────────────────────────────────────────
 
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Card({ title, subtitle, children, exportUrls }: {
+  title: string; subtitle?: string; children: React.ReactNode;
+  exportUrls?: { csv: string; json: string };
+}) {
   return (
     <div className="rounded-xl mb-5 overflow-hidden"
          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-      <div className="px-5 pt-4 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
-        <div className="font-bold text-sm" style={{ color: 'var(--text)' }}>{title}</div>
-        {subtitle && <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{subtitle}</div>}
+      <div className="flex items-start gap-3 px-5 pt-4 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="min-w-0 flex-1">
+          <div className="font-bold text-sm text-balance" style={{ color: 'var(--text)' }}>{title}</div>
+          {subtitle && <div className="text-xs mt-0.5 text-pretty" style={{ color: 'var(--muted)' }}>{subtitle}</div>}
+        </div>
+        {exportUrls && (
+          <div className="flex gap-1.5">
+            <a href={exportUrls.csv} className="min-h-10 px-2.5 py-2 text-xs rounded-lg active:scale-[0.96] transition-transform"
+              style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>CSV</a>
+            <a href={exportUrls.json} className="min-h-10 px-2.5 py-2 text-xs rounded-lg active:scale-[0.96] transition-transform"
+              style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>JSON</a>
+          </div>
+        )}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -236,10 +265,13 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
 
   const [activeSector, setActiveSector] = useState('All');
   const [allSectors,     setAllSectors]     = useState<string[]>([]);
+  const [drilldown, setDrilldown] = useState<DrilldownRequest | null>(null);
 
   // Fetch whenever dumps/country/timeline/sector change.
   // Sector is server-side so ALL charts (career level, skills, salary, etc.) reflect the selection.
   useEffect(() => {
+    // Existing dashboard fetch lifecycle: show the loading state for a changed scope.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     fetchDashboard({
       dumps:  selectedDumps,
@@ -257,13 +289,13 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDumps, activeSector]);
 
   // Reset sector when selection, country, or timeline changes.
   useEffect(() => {
+    // The available sector scope changes when dataset navigation changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveSector('All');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDumps, activeCountry, activeTimeline]);
 
   // Colors keyed on allTimelines so they stay consistent regardless of active filters
@@ -291,6 +323,15 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
   );
 
   if (!data) return null;
+
+  const baseScope: DashboardScope = activeSector !== 'All' ? { sector: activeSector } : {};
+  const openDrilldown = (title: string, scope: DashboardScope) => {
+    setDrilldown({ title, scope: { ...baseScope, ...scope } });
+  };
+  const exportUrls = (dimension: DashboardDimension) => ({
+    csv: dashboardExportUrl('aggregation', selectedDumps, baseScope, 'csv', dimension),
+    json: dashboardExportUrl('aggregation', selectedDumps, baseScope, 'json', dimension),
+  });
 
   return (
     <div className="p-5 max-w-7xl mx-auto">
@@ -345,6 +386,12 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
             )}
           </div>
         )}
+        <div className="pt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+          <DashboardSearch onSearch={request => setDrilldown({
+            ...request,
+            scope: { ...baseScope, ...request.scope },
+          })} />
+        </div>
       </div>
 
       {/* ── KPI row ────────────────────────────────────────────────────────── */}
@@ -395,10 +442,12 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {sectorRows.length > 0 && (
         <Card
           title="📊 Postings by Sector"
-          subtitle={sectorTL.length > 1 ? `Stacked by timeline — ${sectorTL.join(', ')}` : undefined}>
+          subtitle={sectorTL.length > 1 ? `Stacked by timeline — ${sectorTL.join(', ')}. Export includes the full ranking.` : 'Click a sector to browse matching postings. Export includes the full ranking.'}
+          exportUrls={exportUrls('sector')}>
           {sectorTL.length > 1
             ? <HBarStacked rows={sectorRows} timelines={sectorTL} tlColors={tlColors} height={sectorHeight} />
-            : <HBar data={sectorRows} x="count" y="sector" color="#6c63ff" height={sectorHeight} />
+            : <HBar data={sectorRows} x="count" y="sector" color="#6c63ff" height={sectorHeight}
+                onSelect={row => openDrilldown(String(row.sector), { sector: String(row.sector) })} />
           }
         </Card>
       )}
@@ -406,13 +455,15 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {/* ── Career level + Employment type ─────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {data.career_levels.length > 0 && (
-          <Card title="🎯 Career Level" subtitle="Distribution across selected postings">
-            <Donut data={data.career_levels} name="level" value="count" />
+          <Card title="🎯 Career Level" subtitle="Click a segment to browse matching postings." exportUrls={exportUrls('career_level')}>
+            <Donut data={data.career_levels} name="level" value="count"
+              onSelect={row => openDrilldown(String(row.level), { career_level: String(row.level) })} />
           </Card>
         )}
         {data.employment_types.length > 0 && (
-          <Card title="💼 Employment Type">
-            <Donut data={data.employment_types} name="type" value="count" />
+          <Card title="💼 Employment Type" exportUrls={exportUrls('employment_type')}>
+            <Donut data={data.employment_types} name="type" value="count"
+              onSelect={row => openDrilldown(String(row.type), { employment_type: String(row.type) })} />
           </Card>
         )}
       </div>
@@ -432,6 +483,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
                   data={data.salary.by_sector}
                   x="avg_usd" y="sector" color="#00c9a7"
                   height={Math.max(260, data.salary.by_sector.length * 34)}
+                  onSelect={row => openDrilldown(`Salary disclosures · ${String(row.sector)}`, { sector: String(row.sector) })}
                 />
               </div>
             )}
@@ -440,7 +492,8 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
                 <div className="text-xs font-semibold mb-3" style={{ color: 'var(--muted)' }}>
                   Salary Brackets (USD / month)
                 </div>
-                <VBar data={data.salary.distribution} x="bracket" y="count" height={300} />
+                <VBar data={data.salary.distribution} x="bracket" y="count" height={300}
+                  onSelect={row => openDrilldown(`Salary ${String(row.bracket)}`, { salary_bracket: String(row.bracket) })} />
               </div>
             )}
           </div>
@@ -449,38 +502,44 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
 
       {/* ── Skills ─────────────────────────────────────────────────────────── */}
       {data.skills.length > 0 && (
-        <Card title="🛠 Top In-Demand Skills" subtitle="Extracted from job postings across selected data">
+        <Card title="🛠 Top In-Demand Skills" subtitle="The chart shows top results; export includes every extracted skill."
+          exportUrls={exportUrls('skill')}>
           <HBar data={data.skills} x="count" y="skill" color="#a855f7"
-            height={Math.max(280, data.skills.length * 30)} />
+            height={Math.max(280, data.skills.length * 30)}
+            onSelect={row => openDrilldown(String(row.skill), { skill: String(row.skill) })} />
         </Card>
       )}
 
       {/* ── Job titles ─────────────────────────────────────────────────────── */}
       {data.job_titles.length > 0 && (
-        <Card title="📋 Most Advertised Positions">
+        <Card title="📋 Most Advertised Positions" exportUrls={exportUrls('title')}>
           <HBar data={data.job_titles} x="count" y="title" color="#ffd93d"
-            height={Math.max(280, data.job_titles.length * 30)} />
+            height={Math.max(280, data.job_titles.length * 30)}
+            onSelect={row => openDrilldown(String(row.title), { title: String(row.title) })} />
         </Card>
       )}
 
       {/* ── Companies ──────────────────────────────────────────────────────── */}
       {data.companies.length > 0 && (
-        <Card title="🏢 Top Hiring Companies">
+        <Card title="🏢 Top Hiring Companies" exportUrls={exportUrls('company')}>
           <HBar data={data.companies} x="count" y="company" color="#4ecdc4"
-            height={Math.max(240, data.companies.length * 32)} />
+            height={Math.max(240, data.companies.length * 32)}
+            onSelect={row => openDrilldown(String(row.company), { company: String(row.company) })} />
         </Card>
       )}
 
       {/* ── Experience + Company size ───────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {data.experience.length > 0 && (
-          <Card title="📅 Experience Required">
-            <VBar data={data.experience} x="experience" y="count" height={280} />
+          <Card title="📅 Experience Required" exportUrls={exportUrls('experience')}>
+            <VBar data={data.experience} x="experience" y="count" height={280}
+              onSelect={row => openDrilldown(String(row.experience), { experience: String(row.experience) })} />
           </Card>
         )}
         {data.company_size.length > 0 && (
-          <Card title="🏭 Company Size">
-            <Donut data={data.company_size} name="size" value="count" />
+          <Card title="🏭 Company Size" exportUrls={exportUrls('company_size')}>
+            <Donut data={data.company_size} name="size" value="count"
+              onSelect={row => openDrilldown(String(row.size), { company_size: String(row.size) })} />
           </Card>
         )}
       </div>
@@ -488,21 +547,24 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {/* ── Language + Location ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {data.languages.length > 0 && (
-          <Card title="🗣 Language Requirements">
-            <VBar data={data.languages} x="language" y="count" height={260} />
+          <Card title="🗣 Language Requirements" exportUrls={exportUrls('language')}>
+            <VBar data={data.languages} x="language" y="count" height={260}
+              onSelect={row => openDrilldown(String(row.language), { language: String(row.language) })} />
           </Card>
         )}
         {data.locations.length > 0 && (
-          <Card title="📍 Top Locations">
-            <Donut data={data.locations} name="city" value="count" />
+          <Card title="📍 Top Locations" exportUrls={exportUrls('location')}>
+            <Donut data={data.locations} name="city" value="count"
+              onSelect={row => openDrilldown(String(row.city), { location: String(row.city) })} />
           </Card>
         )}
       </div>
 
       {/* ── Country comparison (only visible on "All" tab) ─────────────────── */}
       {activeCountry === 'All' && data.country_comparison.length > 1 && (
-        <Card title="🌍 Volume by Country" subtitle="Share of total postings across selected datasets">
-          <Donut data={data.country_comparison} name="country" value="count" />
+        <Card title="🌍 Volume by Country" subtitle="Share of total postings across selected datasets" exportUrls={exportUrls('country')}>
+          <Donut data={data.country_comparison} name="country" value="count"
+            onSelect={row => openDrilldown(String(row.country), { country: String(row.country) })} />
         </Card>
       )}
 
@@ -560,6 +622,14 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
         </Card>
       )}
 
+      {drilldown && (
+        <PostingDrawer
+          key={`${drilldown.title}:${JSON.stringify(drilldown.scope)}`}
+          request={drilldown}
+          dumps={selectedDumps}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
   );
 }
