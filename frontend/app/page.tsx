@@ -1,19 +1,21 @@
-import Link from "next/link";
+import { LandingNav } from '@/components/landing/LandingNav';
+import { Hero } from '@/components/landing/Hero';
+import { Features } from '@/components/landing/Features';
+import { Team } from '@/components/landing/Team';
+import { FAQ } from '@/components/landing/FAQ';
+import { Footer } from '@/components/landing/Footer';
 
 export default function HomePage() {
   return (
-    <main className="flex min-h-screen items-center justify-center px-6">
-      <div className="text-center">
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          New landing page in progress.
-        </p>
-        <Link
-          href="/app"
-          className="mt-4 inline-block text-sm underline underline-offset-4"
-        >
-          Open dashboard
-        </Link>
-      </div>
-    </main>
+    <>
+      <LandingNav />
+      <main id="main">
+        <Hero />
+        <Features />
+        <Team />
+        <FAQ />
+      </main>
+      <Footer />
+    </>
   );
 }

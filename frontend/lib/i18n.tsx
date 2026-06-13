@@ -1,71 +1,126 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, use, useEffect, useState, ReactNode } from 'react';
 
 export type Lang = 'en' | 'ar';
 
-const dictionaries: Record<Lang, Record<string, any>> = {
+type Dict = Record<string, unknown>;
+
+const dictionaries: Record<Lang, Dict> = {
   en: {
     nav: {
-      brand: 'GCC Job Market Intel',
+      brand: 'Mihna',
       features: 'Features',
-      services: 'Services',
+      modules: 'Modules',
+      team: 'Team',
       faq: 'FAQ',
-      getStarted: 'Get Started',
+      cta: 'Open dashboard',
+      moduleDashboard: 'Dashboard',
+      moduleDashboardSub: 'Filter postings by country, sector, and seniority',
+      moduleChat: 'Chat',
+      moduleChatSub: 'Ask the data in plain English or Arabic',
+      moduleAnalyze: 'Analyze',
+      moduleAnalyzeSub: 'Drill into salary bands, skill graphs, demand maps',
+      soon: 'Soon',
+      menu: 'Menu',
+      close: 'Close',
+      light: 'Light',
+      dark: 'Dark',
+      switchToArabic: 'العربية',
+      switchToEnglish: 'English',
+      skipToContent: 'Skip to content',
     },
-    hero: {
-      badge: 'AI-Powered Labor Market Intelligence',
-      title: 'Understand the GCC Job Market in Real Time',
-      highlight: 'Real Time',
-      subtitle:
-        'Fanar-powered analytics and a conversational assistant built on live job postings from Bayt.com and LinkedIn across Qatar, the UAE, and Saudi Arabia.',
-      cta: 'Get Started',
-      ctaSecondary: 'How it works',
+    mihna: {
+      heroEyebrow: 'AI-powered labor market intelligence',
+      heroTagPrefix: 'Read the GCC job market through',
+      heroTagSuffix: '',
+      heroLead:
+        'Mihna grounds AI analysis in live job postings from across the Gulf — built for analysts, researchers, and policymakers reading workforce data with care.',
+      heroPrimary: 'Open dashboard',
+      heroSecondary: 'How it works',
+
+      featuresTitle: 'Features',
+      featLiveTitle: 'Live dashboard',
+      featLiveDesc:
+        'Filter postings by country, sector, seniority, and time. Charts re-render the moment a filter lands.',
+      featLiveCta: 'Open dashboard',
+      featChatTitle: 'Conversational analysis',
+      featChatDesc:
+        'Ask in English or Arabic. Answers cite the underlying postings and respect the filters you set.',
+      featChatCta: 'Ask the data',
+      featAnalyzeTitle: 'Analyze',
+      featAnalyzeDesc:
+        'Drill into salary bands, skill graphs, and demand maps. Compare cohorts across country, sector, and time.',
+      featAnalyzeCta: 'Open analyze',
+      featCoverageTitle: 'Multi-country coverage',
+      featCoverageDesc:
+        'Qatar, the UAE, and Saudi Arabia today. Bahrain, Kuwait, and Oman on deck — all under a single schema.',
+      featBenchTitle: 'Snapshot benchmarking',
+      featBenchDesc:
+        'Compare any two months side-by-side. Caveats on disclosure rates surface alongside the numbers, not buried in footnotes.',
+      featExportTitle: 'Reproducible exports',
+      featExportDesc:
+        'Pull a chart, a filter, a dataset. The script that generated it is bundled with the export.',
+
+      teamTitle: 'Team',
+      teamMember1Name: 'Dr. Hamdy Mubarak',
+      teamMember1Role: 'Principal Software Engineer',
+      teamMember2Name: 'Abubakr Mohamed',
+      teamMember2Role: '',
+      teamMember3Name: 'Albaraa Aloush',
+      teamMember3Role: '',
+      teamMember4Name: 'Mohammad Faiz',
+      teamMember4Role: '',
+      teamMember5Name: 'Yahya Taha',
+      teamMember5Role: '',
+
+      faqTitle: 'Frequently asked questions',
+      faq1Q: 'Where does the data come from?',
+      faq1A: 'Job postings are continuously collected from Bayt.com and LinkedIn across Gulf countries. We treat raw snapshots as immutable inputs — every chart cites its source file, snapshot date, geography, and row count.',
+      faq2Q: 'What is Fanar?',
+      faq2A: 'Fanar is an Arabic-first large language model used to normalize and analyze postings. It extracts skills, sectors, salary bands, and trends without losing the Arabic-language signal that GCC postings carry.',
+      faq3Q: 'Can I ask the assistant questions in Arabic?',
+      faq3A: 'Yes. The conversational layer answers in either language and grounds every response in the same filters you set on the dashboard. There is no separate model per language.',
+      faq4Q: 'Which countries are covered today?',
+      faq4A: 'Qatar is the primary focus, with the UAE and Saudi Arabia available now. Bahrain, Kuwait, and Oman are on the roadmap, all under the same schema so cross-country comparisons stay honest.',
+      faq5Q: 'How fresh is the data?',
+      faq5A: 'Snapshots are pulled on a regular cadence. Where snapshot dates differ across countries, the dashboard surfaces that explicitly — month-over-month comparisons always state the snapshot dates being compared.',
+      faq6Q: 'Why is salary disclosure so partial?',
+      faq6A: 'Disclosure rates in GCC postings are low. Mihna flags low-confidence salary conclusions with a visible caveat rather than smoothing them away. We would rather show you the gap than fabricate a clean number.',
+
+      analyzeEyebrow: 'Analyze · in development',
+      analyzeTitle: 'Salary bands. Skill graphs. Demand maps.',
+      analyzeBody:
+        'A workspace for cross-cohort analysis, ranging across country, sector, and time. Shipping in stages — early access lands soon.',
+      analyzeStage1Title: 'Salary band analysis',
+      analyzeStage1Note: 'Disclosed and inferred bands by sector, level, and country.',
+      analyzeStage2Title: 'Skill graph mapping',
+      analyzeStage2Note: 'Co-occurrence graphs across the postings index.',
+      analyzeStage3Title: 'Demand maps & cohort compare',
+      analyzeStage3Note: 'Side-by-side comparison across snapshots and geographies.',
+      analyzeBackHome: 'Back to Mihna',
+
+      footerTagline:
+        'AI-grounded labor-market intelligence for Qatar and the wider Gulf.',
+      footerContactTitle: 'Contact',
+      footerProductTitle: 'Product',
+      footerCompanyTitle: 'About',
+      footerLinkDashboard: 'Dashboard',
+      footerLinkChat: 'Chat',
+      footerLinkAnalyze: 'Analyze',
+      footerLinkFeatures: 'Features',
+      footerLinkTeam: 'Team',
+      footerLinkFaq: 'FAQ',
+      footerLocation: 'Doha, Qatar',
+      footerEmail: 'hello@mihna.qa',
+      footerPhone: '+974. 445. 47781',
+      footerRights: '© 2026 Mihna. All rights reserved.',
+      footerInstitution: 'A QCRI labor-market research project.',
     },
-    pipeline: {
-      title: 'How It Works',
-      subtitle: 'From raw job postings to actionable insight — fully automated.',
-      step1Title: 'Collect',
-      step1Desc: 'Job postings are continuously gathered from Bayt.com and LinkedIn across the GCC.',
-      step2Title: 'Structure',
-      step2Desc: 'Postings are cleaned, deduplicated, and organized into structured Excel datasets.',
-      step3Title: 'Analyze',
-      step3Desc: 'Fanar, an Arabic-first LLM, extracts skills, salaries, sectors, and trends from the data.',
-      step4Title: 'Deliver',
-      step4Desc: 'Insights surface in an interactive dashboard and a conversational chatbot.',
-    },
-    features: {
-      title: 'Everything you need to read the market',
-      subtitle: 'Powerful tools for exploring GCC job market data, in one place.',
-      item1Title: 'Live Dashboards',
-      item1Desc: 'Explore postings by country, sector, career level, and time with interactive charts.',
-      item2Title: 'AI Chat Assistant',
-      item2Desc: 'Ask natural-language questions about salaries, skills, and hiring trends.',
-      item3Title: 'Multi-Country Coverage',
-      item3Desc: 'Qatar, UAE, and Saudi Arabia job markets in one place.',
-      item4Title: 'Bilingual & Themeable',
-      item4Desc: 'Full English/Arabic support with light and dark modes.',
-    },
-    trusted: {
-      title: 'Powered by data & models from',
-    },
-    faq: {
-      title: 'Frequently Asked Questions',
-      q1: 'Where does the data come from?',
-      a1: 'Job postings are collected from Bayt.com and LinkedIn across GCC countries and refreshed regularly.',
-      q2: 'What is Fanar?',
-      a2: 'Fanar is an Arabic-first large language model that analyzes job postings to extract skills, salaries, sectors, and market trends.',
-      q3: 'Can I ask questions directly?',
-      a3: 'Yes — the chat assistant lets you ask natural-language questions and get answers grounded in the real data.',
-      q4: 'Which countries are covered?',
-      a4: 'The platform currently covers Qatar, the UAE, and Saudi Arabia, with more on the way.',
-    },
-    footer: {
-      tagline: 'AI-powered GCC labor market insights.',
-      rights: 'All rights reserved.',
-    },
+    /* Legacy /app dashboard keys — referenced by components/Dashboard.tsx,
+       components/Chat.tsx, components/Sidebar.tsx, app/app/page.tsx. */
     app: {
-      title: 'GCC Job Market Intelligence',
+      title: 'Mihna',
       dashboard: 'Dashboard',
       chat: 'Chat',
       home: 'Home',
@@ -73,65 +128,116 @@ const dictionaries: Record<Lang, Record<string, any>> = {
   },
   ar: {
     nav: {
-      brand: 'ذكاء سوق العمل الخليجي',
-      features: 'المميزات',
-      services: 'الخدمات',
-      faq: 'الأسئلة الشائعة',
-      getStarted: 'ابدأ الآن',
+      brand: 'مِهنَة',
+      features: 'الإمكانات',
+      modules: 'الوحدات',
+      team: 'الفريق',
+      faq: 'الأسئلة',
+      cta: 'افتح لوحة التحكم',
+      moduleDashboard: 'لوحة التحكم',
+      moduleDashboardSub: 'استعرض الإعلانات حسب الدولة والقطاع والمستوى',
+      moduleChat: 'المحادثة',
+      moduleChatSub: 'اسأل البيانات بالعربية أو الإنجليزية',
+      moduleAnalyze: 'التحليل',
+      moduleAnalyzeSub: 'فئات الرواتب وخرائط الطلب وروابط المهارات',
+      soon: 'قريباً',
+      menu: 'القائمة',
+      close: 'إغلاق',
+      light: 'فاتح',
+      dark: 'داكن',
+      switchToArabic: 'العربية',
+      switchToEnglish: 'English',
+      skipToContent: 'تخطَّ إلى المحتوى',
     },
-    hero: {
-      badge: 'تحليلات سوق العمل بالذكاء الاصطناعي',
-      title: 'افهم سوق العمل الخليجي في الوقت الفعلي',
-      highlight: 'الوقت الفعلي',
-      subtitle:
-        'تحليلات مدعومة بنموذج Fanar ومساعد محادثة ذكي مبني على إعلانات وظائف حقيقية من Bayt.com وLinkedIn في قطر والإمارات والسعودية.',
-      cta: 'ابدأ الآن',
-      ctaSecondary: 'كيف يعمل',
-    },
-    pipeline: {
-      title: 'كيف يعمل',
-      subtitle: 'من إعلانات الوظائف الخام إلى رؤى قابلة للتنفيذ — بشكل آلي بالكامل.',
-      step1Title: 'الجمع',
-      step1Desc: 'يتم جمع إعلانات الوظائف باستمرار من Bayt.com وLinkedIn في جميع أنحاء الخليج.',
-      step2Title: 'التنظيم',
-      step2Desc: 'يتم تنظيف الإعلانات وإزالة التكرار وتنظيمها في ملفات إكسل منظمة.',
-      step3Title: 'التحليل',
-      step3Desc: 'يقوم Fanar، النموذج اللغوي العربي، باستخراج المهارات والرواتب والقطاعات والاتجاهات من البيانات.',
-      step4Title: 'العرض',
-      step4Desc: 'تظهر النتائج في لوحة تحكم تفاعلية ومساعد محادثة ذكي.',
-    },
-    features: {
-      title: 'كل ما تحتاجه لقراءة السوق',
-      subtitle: 'أدوات قوية لاستكشاف بيانات سوق العمل الخليجي في مكان واحد.',
-      item1Title: 'لوحات تحكم حية',
-      item1Desc: 'استكشف الإعلانات حسب الدولة والقطاع والمستوى الوظيفي والزمن من خلال رسوم بيانية تفاعلية.',
-      item2Title: 'مساعد محادثة ذكي',
-      item2Desc: 'اطرح أسئلة بلغة طبيعية حول الرواتب والمهارات واتجاهات التوظيف.',
-      item3Title: 'تغطية متعددة الدول',
-      item3Desc: 'أسواق العمل في قطر والإمارات والسعودية في مكان واحد.',
-      item4Title: 'ثنائي اللغة وقابل للتخصيص',
-      item4Desc: 'دعم كامل للغتين العربية والإنجليزية مع وضعين فاتح وداكن.',
-    },
-    trusted: {
-      title: 'مدعوم ببيانات ونماذج من',
-    },
-    faq: {
-      title: 'الأسئلة الشائعة',
-      q1: 'من أين تأتي البيانات؟',
-      a1: 'يتم جمع إعلانات الوظائف من Bayt.com وLinkedIn عبر دول مجلس التعاون الخليجي وتحديثها بشكل دوري.',
-      q2: 'ما هو Fanar؟',
-      a2: 'Fanar هو نموذج لغوي عربي كبير يحلل إعلانات الوظائف لاستخراج المهارات والرواتب والقطاعات واتجاهات السوق.',
-      q3: 'هل يمكنني طرح الأسئلة مباشرة؟',
-      a3: 'نعم — يتيح لك مساعد المحادثة طرح أسئلة بلغة طبيعية والحصول على إجابات مبنية على البيانات الفعلية.',
-      q4: 'ما هي الدول المشمولة؟',
-      a4: 'تغطي المنصة حالياً قطر والإمارات والسعودية، مع المزيد قريباً.',
-    },
-    footer: {
-      tagline: 'رؤى سوق العمل الخليجي مدعومة بالذكاء الاصطناعي.',
-      rights: 'جميع الحقوق محفوظة.',
+    mihna: {
+      heroEyebrow: 'ذكاء اصطناعي لسوق العمل',
+      heroTagPrefix: 'اقرأ سوق العمل الخليجي عبر',
+      heroTagSuffix: '',
+      heroLead:
+        'تستند مِهنَة إلى إعلانات وظائف حقيقية من الخليج، مبنيّة للمحلّلين والباحثين وصنّاع السياسات الذين يقرأون بيانات القوى العاملة بدقّة.',
+      heroPrimary: 'افتح لوحة التحكم',
+      heroSecondary: 'كيف تعمل',
+
+      featuresTitle: 'الإمكانات',
+      featLiveTitle: 'لوحة تحكم حيّة',
+      featLiveDesc:
+        'فلترة الإعلانات حسب الدولة والقطاع والمستوى الوظيفي والزمن. تتحدّث الرسوم البيانية لحظة تثبيت أي فلتر.',
+      featLiveCta: 'افتح لوحة التحكم',
+      featChatTitle: 'تحليل بالمحادثة',
+      featChatDesc:
+        'اسأل بالعربية أو الإنجليزية. تستشهد الإجابات بالإعلانات الفعلية وتحترم الفلاتر التي اخترتها.',
+      featChatCta: 'اسأل البيانات',
+      featAnalyzeTitle: 'التحليل',
+      featAnalyzeDesc:
+        'تعمَّق في فئات الرواتب وشبكات المهارات وخرائط الطلب. قارن بين الفئات عبر الدولة والقطاع والزمن.',
+      featAnalyzeCta: 'افتح التحليل',
+      featCoverageTitle: 'تغطية متعدّدة الدول',
+      featCoverageDesc:
+        'قطر والإمارات والسعودية اليوم. البحرين والكويت وعُمان قيد الإضافة، تحت بنية موحّدة للمقارنة.',
+      featBenchTitle: 'مقارنة لقطات زمنيّة',
+      featBenchDesc:
+        'قارن أي شهرين جنباً إلى جنب. تظهر تحفّظات نسب الإفصاح إلى جانب الأرقام، لا في الهامش.',
+      featExportTitle: 'تصدير قابل للتكرار',
+      featExportDesc:
+        'صدِّر رسماً أو فلتراً أو مجموعة بيانات. يصاحب التصدير السكربت الذي أنتجه.',
+
+      teamTitle: 'الفريق',
+      teamMember1Name: 'د. حمدي مبارك',
+      teamMember1Role: 'مهندس برمجيّات أوّل',
+      teamMember2Name: 'أبوبكر محمد',
+      teamMember2Role: '',
+      teamMember3Name: 'البراء علوش',
+      teamMember3Role: '',
+      teamMember4Name: 'محمّد فايز',
+      teamMember4Role: '',
+      teamMember5Name: 'يحيى طه',
+      teamMember5Role: '',
+
+      faqTitle: 'الأسئلة الشائعة',
+      faq1Q: 'من أين تأتي البيانات؟',
+      faq1A: 'تُجمع إعلانات الوظائف باستمرار من Bayt و LinkedIn في دول الخليج. نتعامل مع اللقطات الخام كمدخلات لا تُعدَّل، ويذكر كل رسم مصدره وتاريخ اللقطة والجغرافيا وعدد الصفوف.',
+      faq2Q: 'ما هو Fanar؟',
+      faq2A: 'Fanar نموذج لغوي عربي أوّل يُستخدم لتطبيع الإعلانات وتحليلها، يستخرج المهارات والقطاعات وفئات الرواتب والاتجاهات دون فقد الإشارة العربيّة في الإعلانات الخليجيّة.',
+      faq3Q: 'هل يمكنني سؤال المساعد بالعربيّة؟',
+      faq3A: 'نعم. تجيب طبقة المحادثة بأيٍّ من اللغتين، وتلتزم بالفلاتر نفسها التي اخترتها على لوحة التحكم. لا نموذج منفصل لكل لغة.',
+      faq4Q: 'ما الدول المُغطّاة الآن؟',
+      faq4A: 'قطر هي محور التركيز، مع الإمارات والسعودية المتاحتين الآن. البحرين والكويت وعُمان على خارطة الطريق، ضمن نفس البنية لتظلّ المقارنات أمينة.',
+      faq5Q: 'ما مدى حداثة البيانات؟',
+      faq5A: 'تُسحب اللقطات بإيقاع منتظم. حين تختلف تواريخ اللقطات بين الدول، تُظهر اللوحة ذلك صراحةً، وتُذكَر تواريخ المقارنة دائماً.',
+      faq6Q: 'لماذا الإفصاح عن الراتب جزئيّ؟',
+      faq6A: 'نسب الإفصاح في الإعلانات الخليجيّة منخفضة. تُشير مِهنَة بوضوح إلى استنتاجات الراتب منخفضة الثقة بدل تنعيمها. نُريك الفجوة بدل اختلاق رقم نظيف.',
+
+      analyzeEyebrow: 'التحليل · قيد العمل',
+      analyzeTitle: 'فئات الرواتب. شبكات المهارات. خرائط الطلب.',
+      analyzeBody:
+        'فضاء عمل لمقارنة الفئات عبر الدولة والقطاع والزمن. يصل تِباعاً، والوصول المبكّر قريب.',
+      analyzeStage1Title: 'تحليل فئات الرواتب',
+      analyzeStage1Note: 'الفئات المُفصَح عنها والمُستنتَجة حسب القطاع والمستوى والدولة.',
+      analyzeStage2Title: 'رسم شبكات المهارات',
+      analyzeStage2Note: 'رسوم تَكرار المهارات عبر دليل الإعلانات.',
+      analyzeStage3Title: 'خرائط الطلب ومقارنة الفئات',
+      analyzeStage3Note: 'مقارنة جنباً إلى جنب عبر اللقطات والجغرافيا.',
+      analyzeBackHome: 'العودة إلى مِهنَة',
+
+      footerTagline:
+        'ذكاء اصطناعي لقراءة سوق العمل في قطر والخليج.',
+      footerContactTitle: 'تواصل',
+      footerProductTitle: 'المنتج',
+      footerCompanyTitle: 'عنّا',
+      footerLinkDashboard: 'لوحة التحكم',
+      footerLinkChat: 'المحادثة',
+      footerLinkAnalyze: 'التحليل',
+      footerLinkFeatures: 'الإمكانات',
+      footerLinkTeam: 'الفريق',
+      footerLinkFaq: 'الأسئلة',
+      footerLocation: 'الدوحة، قطر',
+      footerEmail: 'hello@mihna.qa',
+      footerPhone: '+974. 445. 47781',
+      footerRights: '© 2026 مِهنَة. جميع الحقوق محفوظة.',
+      footerInstitution: 'مشروع بحثي ضمن معهد قطر لبحوث الحوسبة.',
     },
     app: {
-      title: 'ذكاء سوق العمل الخليجي',
+      title: 'مِهنَة',
       dashboard: 'لوحة التحكم',
       chat: 'المحادثة',
       home: 'الرئيسية',
@@ -153,31 +259,45 @@ const LanguageContext = createContext<LanguageContextValue>({
   t: (path: string) => path,
 });
 
-function lookup(dict: Record<string, any>, path: string): string {
-  const value = path.split('.').reduce<any>((acc, key) => (acc == null ? acc : acc[key]), dict);
+function lookup(dict: Dict, path: string): string {
+  const value = path.split('.').reduce<unknown>(
+    (acc, key) => (acc == null ? acc : (acc as Dict)[key]),
+    dict,
+  );
   return typeof value === 'string' ? value : path;
+}
+
+/* SSR + initial client render both default to 'en' so hydration
+   matches; the inline script in layout.tsx has already set
+   html[lang] + html[dir] correctly so the layout itself never flashes.
+   After mount, the effect aligns React state with the stored value.
+   Brief text-content sync flash is acceptable; the alternative would
+   require cookies-based SSR. */
+function applyLang(next: Lang) {
+  document.documentElement.lang = next;
+  document.documentElement.dir = next === 'ar' ? 'rtl' : 'ltr';
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>('en');
 
   useEffect(() => {
-    const stored = localStorage.getItem('lang') as Lang | null;
-    const initial = stored === 'ar' || stored === 'en' ? stored : 'en';
+    const stored = window.localStorage.getItem('lang') as Lang | null;
+    const initial: Lang = stored === 'ar' || stored === 'en' ? stored : 'en';
     applyLang(initial);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLang(initial);
   }, []);
-
-  function applyLang(next: Lang) {
-    document.documentElement.lang = next;
-    document.documentElement.dir = next === 'ar' ? 'rtl' : 'ltr';
-  }
 
   function toggleLang() {
     setLang(prev => {
       const next: Lang = prev === 'en' ? 'ar' : 'en';
       applyLang(next);
-      localStorage.setItem('lang', next);
+      try {
+        window.localStorage.setItem('lang', next);
+      } catch {
+        /* private browsing / quota — fail silently. */
+      }
       return next;
     });
   }
@@ -193,5 +313,5 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 }
 
 export function useLanguage() {
-  return useContext(LanguageContext);
+  return use(LanguageContext);
 }
