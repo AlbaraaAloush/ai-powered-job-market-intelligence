@@ -82,7 +82,7 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/app" className="m-link" style={{ color: 'var(--m-on-primary)' }}>
+                <Link href="/app/chat" className="m-link" style={{ color: 'var(--m-on-primary)' }}>
                   {t('mihna.footerLinkChat')}
                 </Link>
               </li>

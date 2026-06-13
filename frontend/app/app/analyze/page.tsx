@@ -1,22 +1,20 @@
 import type { Metadata } from 'next';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
-import { AnalyzeContent } from '@/components/landing/AnalyzeContent';
+import { AnalyzePlaceholder } from '@/components/workspace/AnalyzePlaceholder';
+import { AppHeader } from '@/components/workspace/AppHeader';
 
 export const metadata: Metadata = {
-  title: 'Analyze — Mihna',
+  title: 'Analyze | Mihna',
   description:
     'A workspace for cross-cohort analysis of the GCC labor market: salary bands, skill graphs, demand maps. In development.',
 };
 
 export default function AnalyzePage() {
   return (
-    <>
-      <LandingNav />
-      <main id="main">
-        <AnalyzeContent />
+    <div className="app-workspace">
+      <AppHeader />
+      <main id="main" className="app-analyze">
+        <AnalyzePlaceholder />
       </main>
-      <Footer />
-    </>
+    </div>
   );
 }

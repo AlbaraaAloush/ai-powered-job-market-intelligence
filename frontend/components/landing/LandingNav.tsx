@@ -18,7 +18,7 @@ type ModuleItem = {
 
 const moduleItems: ModuleItem[] = [
   { key: 'dashboard', href: '/app',         titleKey: 'nav.moduleDashboard', subKey: 'nav.moduleDashboardSub' },
-  { key: 'chat',      href: '/app',         titleKey: 'nav.moduleChat',      subKey: 'nav.moduleChatSub' },
+  { key: 'chat',      href: '/app/chat',    titleKey: 'nav.moduleChat',      subKey: 'nav.moduleChatSub' },
   { key: 'analyze',   href: '/app/analyze', titleKey: 'nav.moduleAnalyze',   subKey: 'nav.moduleAnalyzeSub' },
 ];
 

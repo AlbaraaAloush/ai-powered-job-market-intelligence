@@ -82,6 +82,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       dir="ltr"
       className={`${fraunces.variable} ${geistSans.variable} ${geistMono.variable} ${reemKufi.variable} ${plexArabic.variable} h-full`}
       data-theme="light"
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <head>

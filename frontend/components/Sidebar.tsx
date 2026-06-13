@@ -1,13 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { DumpInfo } from '@/lib/types';
 import { ModelOption } from '@/lib/api';
-
-const COUNTRY_FLAGS: Record<string, string> = {
-  Qatar: '🇶🇦', UAE: '🇦🇪', 'Saudi Arabia': '🇸🇦',
-  Bahrain: '🇧🇭', Kuwait: '🇰🇼', Oman: '🇴🇲',
-};
 
 interface Props {
   dumps: DumpInfo[];
@@ -16,6 +11,7 @@ interface Props {
   model: string;
   models: ModelOption[];
   isOpen: boolean;
+  showModel?: boolean;
   onToggle: (id: string) => void;
   onSelectAll: () => void;
   onClearAll: () => void;
@@ -25,9 +21,15 @@ interface Props {
 
 export default function Sidebar({
   dumps, timelines, selected, model, models, isOpen,
+  showModel = true,
   onToggle, onSelectAll, onClearAll, onModelChange, onCollapse,
 }: Props) {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isOpen) closeRef.current?.focus();
+  }, [isOpen]);
 
   // Group dumps by country once; sort countries alphabetically, dumps by timeline.
   const grouped = useMemo(() => {
@@ -58,60 +60,39 @@ export default function Sidebar({
 
   // Collapsed state — show only a thin strip with toggle
   if (!isOpen) {
-    return (
-      <aside
-        className="flex flex-col items-center pt-4 gap-3 border-r"
-        style={{ width: 44, background: 'var(--bg-alt)', borderColor: 'var(--border)', flexShrink: 0 }}>
-        <button
-          onClick={onCollapse}
-          title="Open sidebar"
-          className="text-lg hover:text-purple-400 transition focus-ring rounded-md h-9 w-9 inline-flex items-center justify-center"
-          style={{ color: 'var(--muted)' }}>
-          ☰
-        </button>
-        <div
-          className="text-xs font-semibold mt-2 nums"
-          style={{ color: 'var(--accent)', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-          {selected.length} datasets
-        </div>
-      </aside>
-    );
+    return null;
   }
 
   return (
-    <aside
-      className="flex flex-col gap-4 p-4 overflow-y-auto border-r"
-      style={{ width: 256, minWidth: 256, background: 'var(--bg-alt)', borderColor: 'var(--border)' }}>
+    <aside className="app-sidebar" role="dialog" aria-modal="true" aria-labelledby="data-scope-title">
 
       {/* Header + collapse button */}
-      <div className="flex items-start justify-between">
+      <div className="app-sidebar__heading">
         <div>
-          <div className="text-base font-bold" style={{ color: 'var(--text)' }}>🌍 GCC Job Market</div>
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>Intelligence Assistant</div>
+          <div id="data-scope-title" className="app-sidebar__title">Data scope</div>
+          <div className="app-sidebar__subtitle">GCC job postings</div>
         </div>
         <button
+          ref={closeRef}
+          type="button"
           onClick={onCollapse}
           title="Collapse sidebar"
-          className="text-lg mt-0.5 hover:text-purple-400 transition focus-ring rounded-md h-9 w-9 inline-flex items-center justify-center"
-          style={{ color: 'var(--muted)' }}>
-          ✕
+          aria-label="Close data scope"
+          className="app-icon-button focus-ring">
+          <span aria-hidden className="app-close-glyph" />
         </button>
       </div>
 
-      <hr style={{ borderColor: 'var(--border)' }} />
-
       {/* Dataset selector */}
       <div>
-        <div className="text-xs font-bold mb-2 uppercase tracking-wide" style={{ color: 'var(--text)' }}>
-          📂 Datasets
-        </div>
+        <div className="app-sidebar__section-title">Datasets</div>
         <div className="flex gap-2 mb-3">
-          <button onClick={onSelectAll}
+          <button type="button" onClick={onSelectAll}
             className="flex-1 text-xs min-h-8 rounded-md border pill-hover focus-ring"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
             All
           </button>
-          <button onClick={onClearAll}
+          <button type="button" onClick={onClearAll}
             className="flex-1 text-xs min-h-8 rounded-md border pill-hover focus-ring"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
             None
@@ -127,14 +108,12 @@ export default function Sidebar({
             <div key={country} className="mb-3">
               {/* Country header is itself a toggle for the whole group */}
               <button
+                type="button"
                 onClick={() => toggleCountry(cDumps)}
                 title={allSelected ? `Deselect all ${country} datasets` : `Select all ${country} datasets`}
                 className="w-full flex items-center justify-between gap-2 px-2 py-1 mb-1 rounded-md pill-hover focus-ring"
                 style={{ color: 'var(--text)' }}>
-                <span className="text-xs font-semibold inline-flex items-center gap-1.5">
-                  <span aria-hidden>{COUNTRY_FLAGS[country] ?? '🌍'}</span>
-                  <span>{country}</span>
-                </span>
+                <span className="text-xs font-semibold">{country}</span>
                 <span
                   className="text-[10px] nums px-1.5 py-0.5 rounded-md"
                   style={{
@@ -152,6 +131,7 @@ export default function Sidebar({
                   const isSel = selectedSet.has(d._dump_id);
                   return (
                     <button
+                      type="button"
                       key={d._dump_id}
                       onClick={() => onToggle(d._dump_id)}
                       role="checkbox"
@@ -201,18 +181,14 @@ export default function Sidebar({
           );
         })}
 
-        <div className="text-xs font-bold mt-2 nums" style={{ color: 'var(--accent)' }}>
-          📊 {totalJobs > 0 ? `${totalJobs.toLocaleString()} jobs selected` : 'None selected'}
+        <div className="app-sidebar__summary nums">
+          {totalJobs > 0 ? `${totalJobs.toLocaleString()} jobs selected` : 'No datasets selected'}
         </div>
       </div>
 
-      <hr style={{ borderColor: 'var(--border)' }} />
-
       {/* Model selector */}
-      <div>
-        <div className="text-xs font-bold mb-2 uppercase tracking-wide" style={{ color: 'var(--text)' }}>
-          🤖 Model
-        </div>
+      {showModel && <div className="app-sidebar__model">
+        <div className="app-sidebar__section-title">Model</div>
         {models.length === 0 && (
           <div className="text-xs" style={{ color: 'var(--muted)' }}>Loading models…</div>
         )}
@@ -224,20 +200,18 @@ export default function Sidebar({
               value={value}
               checked={model === value}
               onChange={() => onModelChange(value)}
-              className="accent-purple-500 mt-0.5"
+              className="mt-0.5"
             />
             <span className="text-xs leading-tight" style={{ color: model === value ? 'var(--text)' : 'var(--muted)' }}>
               {label}
             </span>
           </label>
         ))}
-      </div>
+      </div>}
 
-      <hr style={{ borderColor: 'var(--border)' }} />
-
-      <div className="text-xs mt-auto pb-2" style={{ color: 'var(--muted)' }}>
+      <div className="app-sidebar__source">
         Source: Bayt.com<br />
-        {timelines.join(' · ')}
+        {timelines.join(', ')}
       </div>
     </aside>
   );

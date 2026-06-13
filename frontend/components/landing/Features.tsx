@@ -31,7 +31,7 @@ const FEATURES: Feature[] = [
   },
   {
     key: 'chat',
-    href: '/app',
+    href: '/app/chat',
     titleKey: 'mihna.featChatTitle',
     descKey: 'mihna.featChatDesc',
     ctaKey: 'mihna.featChatCta',
