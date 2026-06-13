@@ -1,6 +1,4 @@
 import type { Metadata } from 'next';
-import { AnalyzePlaceholder } from '@/components/workspace/AnalyzePlaceholder';
-import { AppHeader } from '@/components/workspace/AppHeader';
 
 export const metadata: Metadata = {
   title: 'Analyze | Mihna',
@@ -9,12 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function AnalyzePage() {
-  return (
-    <div className="app-workspace">
-      <AppHeader />
-      <main id="main" className="app-analyze">
-        <AnalyzePlaceholder />
-      </main>
-    </div>
-  );
+  return null;
 }

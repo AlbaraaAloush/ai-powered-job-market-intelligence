@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { DumpInfo } from '@/lib/types';
 import { ModelOption } from '@/lib/api';
+import { useLanguage } from '@/lib/i18n';
 
 interface Props {
   dumps: DumpInfo[];
@@ -16,20 +17,15 @@ interface Props {
   onSelectAll: () => void;
   onClearAll: () => void;
   onModelChange: (m: string) => void;
-  onCollapse: () => void;
 }
 
 export default function Sidebar({
   dumps, timelines, selected, model, models, isOpen,
   showModel = true,
-  onToggle, onSelectAll, onClearAll, onModelChange, onCollapse,
+  onToggle, onSelectAll, onClearAll, onModelChange,
 }: Props) {
+  const { dir } = useLanguage();
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (isOpen) closeRef.current?.focus();
-  }, [isOpen]);
 
   // Group dumps by country once; sort countries alphabetically, dumps by timeline.
   const grouped = useMemo(() => {
@@ -64,23 +60,14 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="app-sidebar" role="dialog" aria-modal="true" aria-labelledby="data-scope-title">
+    <aside id="data-scope" className="app-sidebar" dir={dir} aria-labelledby="data-scope-title">
 
-      {/* Header + collapse button */}
+      {/* Header */}
       <div className="app-sidebar__heading">
         <div>
           <div id="data-scope-title" className="app-sidebar__title">Data scope</div>
           <div className="app-sidebar__subtitle">GCC job postings</div>
         </div>
-        <button
-          ref={closeRef}
-          type="button"
-          onClick={onCollapse}
-          title="Collapse sidebar"
-          aria-label="Close data scope"
-          className="app-icon-button focus-ring">
-          <span aria-hidden className="app-close-glyph" />
-        </button>
       </div>
 
       {/* Dataset selector */}
@@ -136,7 +123,7 @@ export default function Sidebar({
                       onClick={() => onToggle(d._dump_id)}
                       role="checkbox"
                       aria-checked={isSel}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left focus-ring"
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start focus-ring"
                       style={{
                         background: isSel ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent',
                         border:     `1px solid ${isSel ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'transparent'}`,

@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { Workspace } from '@/components/workspace/Workspace';
 
 export const metadata: Metadata = {
   title: 'Chat | Mihna',
@@ -7,5 +6,5 @@ export const metadata: Metadata = {
 };
 
 export default function ChatPage() {
-  return <Workspace mode="chat" />;
+  return null;
 }

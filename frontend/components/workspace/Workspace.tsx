@@ -2,17 +2,25 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { usePathname } from 'next/navigation';
 import { fetchDashboard, fetchDatasets, fetchModels, ModelOption } from '@/lib/api';
 import { DumpInfo } from '@/lib/types';
 import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/Dashboard';
 import Chat from '@/components/Chat';
 import { useLanguage } from '@/lib/i18n';
+import { AnalyzePlaceholder } from './AnalyzePlaceholder';
 import { AppHeader } from './AppHeader';
 
 type WorkspaceMode = 'dashboard' | 'chat';
 
-export function Workspace({ mode }: { mode: WorkspaceMode }) {
+export function Workspace({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const mode: WorkspaceMode | 'analyze' = pathname.startsWith('/app/chat')
+    ? 'chat'
+    : pathname.startsWith('/app/analyze')
+      ? 'analyze'
+      : 'dashboard';
   const [dumps, setDumps] = useState<DumpInfo[]>([]);
   const [timelines, setTimelines] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -23,8 +31,6 @@ export function Workspace({ mode }: { mode: WorkspaceMode }) {
   const [loadError, setLoadError] = useState('');
   const reduceMotion = useReducedMotion();
   const { dir } = useLanguage();
-  const isRtl = dir === 'rtl';
-  const drawerOffset = isRtl ? '100%' : '-100%';
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -98,29 +104,32 @@ export function Workspace({ mode }: { mode: WorkspaceMode }) {
   }, [dumps, selected]);
 
   return (
-    <div className="app-workspace" dir={dir}>
-      <AppHeader onOpenScope={sidebarOpen ? undefined : () => setSidebarOpen(true)} />
+    <div className="app-workspace" dir="ltr">
+      <AppHeader
+        scopeOpen={sidebarOpen}
+        onOpenScope={() => setSidebarOpen((open) => !open)}
+      />
       <div className="app-workspace__body">
         <AnimatePresence>
           {sidebarOpen && (
-            <>
+            <motion.div
+              className="app-sidebar-layer"
+              initial={reduceMotion ? false : { width: 0 }}
+              animate={{ width: 320 }}
+              exit={{ width: 0 }}
+              transition={{
+                duration: reduceMotion ? 0 : 0.26,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+            >
               <motion.div
-                aria-hidden="true"
-                className="app-sidebar-backdrop"
-                initial={reduceMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: reduceMotion ? 0 : 0.16 }}
-                onClick={() => setSidebarOpen(false)}
-              />
-              <motion.div
-                className="app-sidebar-layer"
-                initial={reduceMotion ? false : { x: drawerOffset }}
-                animate={{ x: 0 }}
-                exit={{ x: drawerOffset }}
+                className="app-sidebar-layer__content"
+                initial={reduceMotion ? false : { x: -16, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -12, opacity: 0 }}
                 transition={{
-                  duration: reduceMotion ? 0 : 0.26,
-                  ease: [0.22, 1, 0.36, 1],
+                  duration: reduceMotion ? 0 : 0.18,
+                  ease: [0.2, 0, 0, 1],
                 }}
               >
                 <Sidebar
@@ -135,15 +144,18 @@ export function Workspace({ mode }: { mode: WorkspaceMode }) {
                   onSelectAll={() => setSelected(dumps.map((dump) => dump._dump_id))}
                   onClearAll={() => setSelected([])}
                   onModelChange={setModel}
-                  onCollapse={() => setSidebarOpen(false)}
                 />
               </motion.div>
-            </>
+            </motion.div>
           )}
         </AnimatePresence>
 
-        <main id="main" className="app-workspace__main">
-          {loading ? (
+        <main id="main" className="app-workspace__main" dir={dir}>
+          {mode === 'analyze' ? (
+            <div className="app-analyze">
+              <AnalyzePlaceholder />
+            </div>
+          ) : loading ? (
             <WorkspaceLoading mode={mode} />
           ) : loadError ? (
             <div className="app-state" role="alert">
@@ -164,6 +176,7 @@ export function Workspace({ mode }: { mode: WorkspaceMode }) {
           ) : (
             <Chat selectedDumps={selected} model={model} />
           )}
+          {children}
         </main>
       </div>
     </div>

@@ -73,11 +73,12 @@ export function LandingNav() {
   return (
     <header
       className="fixed inset-x-0 top-0 z-50"
-      style={{ direction: dir }}
+      dir="ltr"
     >
       {/* Skip link for keyboard users */}
       <a
         href="#main"
+        dir={dir}
         className="m-link sr-only focus:not-sr-only focus:absolute focus:start-4 focus:top-3 focus:rounded-full focus:bg-[var(--m-bg)] focus:px-4 focus:py-2 focus:text-sm"
         style={{ color: 'var(--m-ink)' }}
       >
@@ -126,7 +127,7 @@ export function LandingNav() {
           className="hidden items-center gap-1 md:flex"
           style={{ color: 'var(--m-ink-2)' }}
         >
-          <NavLink href="#features">{t('nav.features')}</NavLink>
+          <NavLink href="#features" dir={dir}>{t('nav.features')}</NavLink>
 
           {/* Modules dropdown */}
           <li
@@ -146,7 +147,7 @@ export function LandingNav() {
                 color: modulesOpen ? 'var(--m-ink)' : 'var(--m-ink-2)',
               }}
             >
-              {t('nav.modules')}
+              <span dir={dir}>{t('nav.modules')}</span>
               <motion.svg
                 width="10"
                 height="10"
@@ -169,6 +170,7 @@ export function LandingNav() {
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: reduce ? 0 : 0.22, ease: [0.2, 0, 0, 1] }}
                   className="absolute top-[calc(100%+6px)] w-[300px] overflow-hidden rounded-2xl p-1.5"
+                  dir={dir}
                   style={{
                     background: 'var(--m-bg)',
                     border: '1px solid var(--m-line)',
@@ -194,8 +196,8 @@ export function LandingNav() {
             </AnimatePresence>
           </li>
 
-          <NavLink href="#team">{t('nav.team')}</NavLink>
-          <NavLink href="#faq">{t('nav.faq')}</NavLink>
+          <NavLink href="#team" dir={dir}>{t('nav.team')}</NavLink>
+          <NavLink href="#faq" dir={dir}>{t('nav.faq')}</NavLink>
         </ul>
 
         {/* Right cluster */}
@@ -203,8 +205,8 @@ export function LandingNav() {
           <LangToggle />
           <ThemeToggle />
           <Link href="/app" className="m-btn-primary ms-2">
-            {t('nav.cta')}
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden style={{ transform: dir === 'rtl' ? 'scaleX(-1)' : undefined }}>
+            <span dir={dir}>{t('nav.cta')}</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
               <path d="M3 7H11M11 7L7.5 3.5M11 7L7.5 10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </Link>
@@ -234,14 +236,22 @@ export function LandingNav() {
   );
 }
 
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+function NavLink({
+  href,
+  children,
+  dir,
+}: {
+  href: string;
+  children: React.ReactNode;
+  dir: 'ltr' | 'rtl';
+}) {
   return (
     <li>
       <Link
         href={href}
         className="focus-ring inline-flex h-10 items-center rounded-full px-4 text-[14px] font-medium transition-colors hover:text-[color:var(--m-ink)]"
       >
-        {children}
+        <span dir={dir}>{children}</span>
       </Link>
     </li>
   );
@@ -338,13 +348,13 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
             key="sheet"
             role="dialog"
             aria-modal="true"
+            dir="ltr"
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: reduce ? 0 : 0.28, ease: [0.2, 0, 0, 1] }}
             className="fixed inset-x-3 top-3 z-50 origin-top overflow-hidden rounded-3xl p-2"
             style={{
-              direction: dir,
               background: 'var(--m-bg)',
               border: '1px solid var(--m-line)',
               boxShadow: '0 24px 60px -20px color-mix(in oklch, var(--m-ink) 30%, transparent)',
@@ -367,7 +377,7 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
 
             <hr className="m-rule mx-3" />
 
-            <ul className="flex flex-col p-2">
+            <ul className="flex flex-col p-2" dir={dir}>
               <MobileLink href="#features" onClose={onClose}>{t('nav.features')}</MobileLink>
               <li className="px-3 pt-3 pb-2 text-[11px] uppercase tracking-[0.18em]" style={{ color: 'var(--m-ink-3)' }}>
                 {t('nav.modules')}
@@ -417,7 +427,7 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
                 onClick={onClose}
                 className="m-btn-primary w-full justify-center"
               >
-                {t('nav.cta')}
+                <span dir={dir}>{t('nav.cta')}</span>
               </Link>
             </div>
           </motion.div>

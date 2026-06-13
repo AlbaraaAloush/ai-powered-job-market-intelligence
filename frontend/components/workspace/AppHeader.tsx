@@ -14,7 +14,13 @@ const routes = [
   { href: '/app/analyze', key: 'analyze' },
 ] as const;
 
-export function AppHeader({ onOpenScope }: { onOpenScope?: () => void }) {
+export function AppHeader({
+  onOpenScope,
+  scopeOpen = false,
+}: {
+  onOpenScope?: () => void;
+  scopeOpen?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
@@ -26,14 +32,16 @@ export function AppHeader({ onOpenScope }: { onOpenScope?: () => void }) {
   }, [router]);
 
   return (
-    <header className="app-header" style={{ direction: dir }}>
+    <header className="app-header" dir="ltr">
       <div className="app-header__brand">
         {onOpenScope && (
           <button
             type="button"
             className="app-icon-button app-header__scope-toggle"
             onClick={onOpenScope}
-            aria-label="Open data scope"
+            aria-label={scopeOpen ? 'Close data scope' : 'Open data scope'}
+            aria-expanded={scopeOpen}
+            aria-controls="data-scope"
           >
             <span aria-hidden className="app-menu-glyph" />
           </button>
@@ -74,13 +82,13 @@ export function AppHeader({ onOpenScope }: { onOpenScope?: () => void }) {
                 startTransition(() => router.push(route.href));
               }}
             >
-              {t(`app.${route.key}`)}
+              <span dir={dir}>{t(`app.${route.key}`)}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="app-header__actions">
+      <div className="app-header__actions" dir="ltr">
         <LangToggle />
         <ThemeToggle />
       </div>
