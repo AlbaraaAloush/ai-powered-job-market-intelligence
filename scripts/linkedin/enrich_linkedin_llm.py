@@ -1,17 +1,21 @@
 """Enrich a LinkedIn jobs XLSX/NDJSON file with LLM-extracted fields.
 
-Reads an existing LinkedIn jobs file (XLSX or NDJSON), and for every row that
-has a non-empty Job_Description, calls an OpenAI model to extract up to 7
+Reads an existing LinkedIn jobs file (XLSX or NDJSON) — sourced from any
+country/market, not just Saudi Arabia — and for every row that has a
+non-empty Job_Description, calls an OpenAI model to extract up to 8
 structured fields that are currently missing or blank:
 
-    Salary_Range_USD        Company_Size           Job_Skills
-    Required_Qualifications Gender                 Education_Level
-    Language_Requirement
+    Salary_Range_USD        Years_of_Experience    Company_Size
+    Job_Skills               Required_Qualifications Gender
+    Education_Level          Language_Requirement
 
 Rules:
   - Rows with a null / empty Job_Description are skipped entirely (no API call).
   - Existing non-null values are NEVER overwritten (field-level guard).
-  - Post_Date is copied directly from date_posted — no LLM needed.
+  - Job_ID is a unique identifier and is NEVER enriched, modified, or
+    overwritten under any circumstance.
+  - Post_Date is a plain passthrough input field — it is not derived or
+    LLM-enriched.
   - Results are checkpointed to JSON every --checkpoint rows (default: 25) so a
     crash never loses more than one checkpoint window of work.
   - Every failed row records its error in an ``llm_error`` column; the run
@@ -56,10 +60,13 @@ import pandas as pd
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Fields the LLM is asked to extract. Post_Date is intentionally absent —
-# it is filled directly from date_posted without an API call.
+# Fields the LLM is asked to extract. Job_ID is intentionally absent — it is
+# a unique identifier and must never be enriched, modified, or overwritten.
+# Post_Date is also absent — it is a plain passthrough input field, not
+# derived or LLM-enriched.
 LLM_TARGET_FIELDS: list[str] = [
     "Salary_Range_USD",
+    "Years_of_Experience",
     "Company_Size",
     "Job_Skills",
     "Required_Qualifications",
@@ -72,24 +79,23 @@ LLM_TARGET_FIELDS: list[str] = [
 OUTPUT_COLUMNS: list[str] = [
     "Job_ID",
     "Job_Title",
-    "company_Name",
-    "job_Category",
-    "Job_location",
+    "Company_Name",
+    "Job_Category",
+    "Job_Location",
     "Salary_Range_USD",
     "Employment_Type",
     "Career_Level",
-    "Years_Of_Experience",
+    "Years_of_Experience",
     "Company_Size",
     "Job_Description",
-    "date_posted",
-    "Post_Date",
-    "is_remote",
-    "URL",
     "Job_Skills",
     "Required_Qualifications",
     "Gender",
+    "Post_Date",
     "Education_Level",
     "Language_Requirement",
+    "Is_Remote",
+    "URL",
     "llm_error",
 ]
 
@@ -108,33 +114,37 @@ log = logging.getLogger("linkedin-llm-enricher")
 # ──────────────────────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You extract structured fields from LinkedIn job postings for the Saudi Arabia market.
+You extract structured fields from LinkedIn job postings. Postings may come
+from any country or market — do not assume a specific region, currency, or
+language unless the posting itself indicates one.
 
 Output ONLY a single JSON object with exactly these keys:
-Salary_Range_USD, Company_Size, Job_Skills, Required_Qualifications,
-Gender, Education_Level, Language_Requirement.
+Salary_Range_USD, Years_of_Experience, Company_Size, Job_Skills,
+Required_Qualifications, Gender, Education_Level, Language_Requirement.
 
 Rules:
 - All values are either a non-empty string or null. Never use arrays or objects.
 - If a field cannot be confidently inferred from the provided text, return null.
-- Salary_Range_USD: "X-Y USD/month" or "X USD/month" if stated; otherwise null.
-  Convert other currencies: 1 SAR = 0.27 USD, 1 AED = 0.27 USD, 1 QAR = 0.27 USD,
-  1 EUR = 1.08 USD, 1 GBP = 1.27 USD. Round to nearest 10.
+- Salary_Range_USD: is "X-Y USD/month" or "X USD/month" if a salary is
+  stated; otherwise null. Convert other currencies to USD using these rough
+  rates: 1 QAR = 0.27 USD, 1 SAR = 0.27 USD, 1 AED = 0.27 USD, 1 EUR = 1.08
+  USD, 1 GBP = 1.27 USD. Round to nearest 10.
+- Years_of_Experience: is a brief phrase like "2-5 years", "10+ years",
+  "Minimum 2 years" or null.
 - Company_Size: short phrase like "50-99 employees", "1,001-5,000 employees",
   "10,000+ employees", or null. Use standard LinkedIn size brackets when the
   description mentions headcount or a well-known company size.
 - Job_Skills: skills separated by "; ". Short English phrases (e.g. "Python; AutoCAD;
   Project Management"). null if none mentioned.
 - Required_Qualifications: qualifications separated by "; " (e.g.
-  "Bachelor's in Civil Engineering; Saudi Council of Engineers registration;
+  "Bachelor's in Civil Engineering; professional engineering registration;
   5+ years experience"). null if none mentioned.
 - Gender: "Male", "Female", or "Any". Only set if the posting explicitly states a
   gender preference; otherwise null.
 - Education_Level: highest required degree as a short phrase —
-  "High School", "Diploma", "Bachelor", "Master", "PhD" — or null.
-- Language_Requirement: short English phrase describing language needs
-  (e.g. "Fluent English required", "Arabic and English", "Arabic fluency mandatory").
-  null if not mentioned.
+  "High School", "Diploma", "Bachelor", "Master", "PhD" or null.
+- Language_Requirement: is a short English phrase (e.g. "Arabic fluency
+  mandatory", "Excellent English communication") or null.
 """
 
 
@@ -142,8 +152,8 @@ def _build_user_prompt(row: dict[str, Any]) -> str:
     """Construct the user-turn prompt from a job row dict."""
     lines = [
         f"Job Title: {row.get('Job_Title') or ''}",
-        f"Company: {row.get('company_Name') or ''}",
-        f"Location: {row.get('Job_location') or ''}",
+        f"Company: {row.get('Company_Name') or ''}",
+        f"Location: {row.get('Job_Location') or ''}",
         f"Employment Type: {row.get('Employment_Type') or ''}",
         f"Career Level: {row.get('Career_Level') or ''}",
         "",
@@ -285,16 +295,15 @@ def enrich_row(
 ) -> dict[str, Any]:
     """Enrich a single row in-place and return it."""
     row = dict(row)  # work on a copy
-
-    # Always copy date_posted → Post_Date (no API call needed)
-    if not row.get("Post_Date"):
-        row["Post_Date"] = row.get("date_posted")
+    original_job_id = row.get("Job_ID")  # immutable — guarded below
 
     if not _needs_enrichment(row, no_overwrite):
+        row["Job_ID"] = original_job_id
         return row
 
     if dry_run:
         log.debug("DRY-RUN: would call LLM for %s", row.get("Job_ID"))
+        row["Job_ID"] = original_job_id
         return row
 
     client = _get_client(api_key, model)
@@ -302,6 +311,7 @@ def enrich_row(
 
     if error:
         row["llm_error"] = error
+        row["Job_ID"] = original_job_id
         log.warning("Enrichment failed for %s: %s", row.get("Job_ID"), error)
         return row
 
@@ -330,6 +340,9 @@ def enrich_row(
 
         row[field] = new_val
 
+    # Job_ID is a unique identifier and must never be touched by enrichment,
+    # regardless of what the LLM returned or what --no-overwrite is set to.
+    row["Job_ID"] = original_job_id
     return row
 
 
@@ -343,7 +356,7 @@ def load_input(path: Path) -> list[dict[str, Any]]:
     suffix = path.suffix.lower()
     if suffix in (".xlsx", ".xls"):
         df = pd.read_excel(path, dtype=str)
-        # Preserve boolean is_remote correctly
+        # Preserve boolean Is_Remote correctly
         records = df.where(pd.notna(df), None).to_dict(orient="records")
         return records
     elif suffix in (".ndjson", ".jsonl"):
@@ -531,10 +544,7 @@ def run(args: argparse.Namespace) -> int:
         len(records), len(pending), skipped_no_desc,
     )
 
-    # Always copy date_posted → Post_Date for ALL rows up-front
-    for rec in records:
-        if not rec.get("Post_Date"):
-            rec["Post_Date"] = rec.get("date_posted")
+    # Post_Date is a plain passthrough input field (no derivation needed).
 
     if args.dry_run:
         log.info("DRY-RUN mode — no API calls will be made.")
