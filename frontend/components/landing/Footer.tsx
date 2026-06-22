@@ -87,11 +87,6 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/app/analyze" className="m-link" style={{ color: 'var(--m-on-primary)' }}>
-                  {t('mihna.footerLinkAnalyze')}
-                </Link>
-              </li>
-              <li>
                 <a href="#features" className="m-link" style={{ color: 'var(--m-on-primary)' }}>
                   {t('mihna.footerLinkFeatures')}
                 </a>

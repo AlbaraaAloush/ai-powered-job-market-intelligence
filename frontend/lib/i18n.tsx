@@ -19,8 +19,6 @@ const dictionaries: Record<Lang, Dict> = {
       moduleDashboardSub: "Filter postings by country, sector, and seniority",
       moduleChat: "Chat",
       moduleChatSub: "Ask the data in plain English or Arabic",
-      moduleAnalyze: "Analyze",
-      moduleAnalyzeSub: "Drill into salary bands, skill graphs, demand maps",
       soon: "Soon",
       menu: "Menu",
       close: "Close",
@@ -48,10 +46,6 @@ const dictionaries: Record<Lang, Dict> = {
       featChatDesc:
         "Ask in English or Arabic. Answers cite the underlying postings and respect the filters you set.",
       featChatCta: "Ask the data",
-      featAnalyzeTitle: "Analyze",
-      featAnalyzeDesc:
-        "Drill into salary bands, skill graphs, and demand maps. Compare cohorts across country, sector, and time.",
-      featAnalyzeCta: "Open analyze",
       featCoverageTitle: "Multi-country coverage",
       featCoverageDesc:
         "Qatar, the UAE, and Saudi Arabia today. Bahrain, Kuwait, and Oman on deck — all under a single schema.",
@@ -94,20 +88,6 @@ const dictionaries: Record<Lang, Dict> = {
       faq6A:
         "Disclosure rates in GCC postings are low. Mihna flags low-confidence salary conclusions with a visible caveat rather than smoothing them away. We would rather show you the gap than fabricate a clean number.",
 
-      analyzeEyebrow: "Analyze · in development",
-      analyzeTitle: "Salary bands. Skill graphs. Demand maps.",
-      analyzeBody:
-        "A workspace for cross-cohort analysis, ranging across country, sector, and time. Shipping in stages — early access lands soon.",
-      analyzeStage1Title: "Salary band analysis",
-      analyzeStage1Note:
-        "Disclosed and inferred bands by sector, level, and country.",
-      analyzeStage2Title: "Skill graph mapping",
-      analyzeStage2Note: "Co-occurrence graphs across the postings index.",
-      analyzeStage3Title: "Demand maps & cohort compare",
-      analyzeStage3Note:
-        "Side-by-side comparison across snapshots and geographies.",
-      analyzeBackHome: "Back to Mihna",
-
       footerTagline:
         "AI-grounded labor-market intelligence for Qatar and the wider Gulf.",
       footerContactTitle: "Contact",
@@ -115,7 +95,6 @@ const dictionaries: Record<Lang, Dict> = {
       footerCompanyTitle: "About",
       footerLinkDashboard: "Dashboard",
       footerLinkChat: "Chat",
-      footerLinkAnalyze: "Analyze",
       footerLinkFeatures: "Features",
       footerLinkTeam: "Team",
       footerLinkFaq: "FAQ",
@@ -131,7 +110,6 @@ const dictionaries: Record<Lang, Dict> = {
       title: "Mihna",
       dashboard: "Dashboard",
       chat: "Chat",
-      analyze: "Analyze",
       home: "Home",
     },
   },
@@ -147,8 +125,6 @@ const dictionaries: Record<Lang, Dict> = {
       moduleDashboardSub: "استعرض الإعلانات حسب الدولة والقطاع والمستوى",
       moduleChat: "المحادثة",
       moduleChatSub: "اسأل البيانات بالعربية أو الإنجليزية",
-      moduleAnalyze: "التحليل",
-      moduleAnalyzeSub: "فئات الرواتب وخرائط الطلب وروابط المهارات",
       soon: "قريباً",
       menu: "القائمة",
       close: "إغلاق",
@@ -176,10 +152,6 @@ const dictionaries: Record<Lang, Dict> = {
       featChatDesc:
         "اسأل بالعربية أو الإنجليزية. تستشهد الإجابات بالإعلانات الفعلية وتحترم الفلاتر التي اخترتها.",
       featChatCta: "اسأل البيانات",
-      featAnalyzeTitle: "التحليل",
-      featAnalyzeDesc:
-        "تعمَّق في فئات الرواتب وشبكات المهارات وخرائط الطلب. قارن بين الفئات عبر الدولة والقطاع والزمن.",
-      featAnalyzeCta: "افتح التحليل",
       featCoverageTitle: "تغطية متعدّدة الدول",
       featCoverageDesc:
         "قطر والإمارات والسعودية اليوم. البحرين والكويت وعُمان قيد الإضافة، تحت بنية موحّدة للمقارنة.",
@@ -222,26 +194,12 @@ const dictionaries: Record<Lang, Dict> = {
       faq6A:
         "نسب الإفصاح في الإعلانات الخليجيّة منخفضة. تُشير مِهنَة بوضوح إلى استنتاجات الراتب منخفضة الثقة بدل تنعيمها. نُريك الفجوة بدل اختلاق رقم نظيف.",
 
-      analyzeEyebrow: "التحليل · قيد العمل",
-      analyzeTitle: "فئات الرواتب. شبكات المهارات. خرائط الطلب.",
-      analyzeBody:
-        "فضاء عمل لمقارنة الفئات عبر الدولة والقطاع والزمن. يصل تِباعاً، والوصول المبكّر قريب.",
-      analyzeStage1Title: "تحليل فئات الرواتب",
-      analyzeStage1Note:
-        "الفئات المُفصَح عنها والمُستنتَجة حسب القطاع والمستوى والدولة.",
-      analyzeStage2Title: "رسم شبكات المهارات",
-      analyzeStage2Note: "رسوم تَكرار المهارات عبر دليل الإعلانات.",
-      analyzeStage3Title: "خرائط الطلب ومقارنة الفئات",
-      analyzeStage3Note: "مقارنة جنباً إلى جنب عبر اللقطات والجغرافيا.",
-      analyzeBackHome: "العودة إلى مِهنَة",
-
       footerTagline: "ذكاء اصطناعي لقراءة سوق العمل في قطر والخليج.",
       footerContactTitle: "تواصل",
       footerProductTitle: "المنتج",
       footerCompanyTitle: "عنّا",
       footerLinkDashboard: "لوحة التحكم",
       footerLinkChat: "المحادثة",
-      footerLinkAnalyze: "التحليل",
       footerLinkFeatures: "الإمكانات",
       footerLinkTeam: "الفريق",
       footerLinkFaq: "الأسئلة",
@@ -255,7 +213,6 @@ const dictionaries: Record<Lang, Dict> = {
       title: "مِهنَة",
       dashboard: "لوحة التحكم",
       chat: "المحادثة",
-      analyze: "التحليل",
       home: "الرئيسية",
     },
   },

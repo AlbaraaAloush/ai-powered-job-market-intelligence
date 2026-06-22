@@ -9,18 +9,13 @@ import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/Dashboard';
 import Chat from '@/components/Chat';
 import { useLanguage } from '@/lib/i18n';
-import { AnalyzePlaceholder } from './AnalyzePlaceholder';
 import { AppHeader } from './AppHeader';
 
 type WorkspaceMode = 'dashboard' | 'chat';
 
 export function Workspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const mode: WorkspaceMode | 'analyze' = pathname.startsWith('/app/chat')
-    ? 'chat'
-    : pathname.startsWith('/app/analyze')
-      ? 'analyze'
-      : 'dashboard';
+  const mode: WorkspaceMode = pathname.startsWith('/app/chat') ? 'chat' : 'dashboard';
   const [dumps, setDumps] = useState<DumpInfo[]>([]);
   const [timelines, setTimelines] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -151,11 +146,7 @@ export function Workspace({ children }: { children: React.ReactNode }) {
         </AnimatePresence>
 
         <main id="main" className="app-workspace__main" dir={dir}>
-          {mode === 'analyze' ? (
-            <div className="app-analyze">
-              <AnalyzePlaceholder />
-            </div>
-          ) : loading ? (
+          {loading ? (
             <WorkspaceLoading mode={mode} />
           ) : loadError ? (
             <div className="app-state" role="alert">

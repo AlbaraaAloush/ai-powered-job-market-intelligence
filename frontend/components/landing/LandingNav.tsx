@@ -9,7 +9,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { LangToggle } from './LangToggle';
 
 type ModuleItem = {
-  key: 'dashboard' | 'chat' | 'analyze';
+  key: 'dashboard' | 'chat';
   href: string | null;
   titleKey: string;
   subKey: string;
@@ -19,7 +19,6 @@ type ModuleItem = {
 const moduleItems: ModuleItem[] = [
   { key: 'dashboard', href: '/app',         titleKey: 'nav.moduleDashboard', subKey: 'nav.moduleDashboardSub' },
   { key: 'chat',      href: '/app/chat',    titleKey: 'nav.moduleChat',      subKey: 'nav.moduleChatSub' },
-  { key: 'analyze',   href: '/app/analyze', titleKey: 'nav.moduleAnalyze',   subKey: 'nav.moduleAnalyzeSub' },
 ];
 
 export function LandingNav() {

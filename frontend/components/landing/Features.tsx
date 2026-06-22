@@ -17,8 +17,8 @@ type Feature = {
   glyph: ReactNode;
 };
 
-/* Six features. The three navigable ones (live dashboard, chat,
-   analyze) come first; the remaining three are info-only. Hover
+/* Five features. The two navigable ones (live dashboard and chat)
+   come first; the remaining three are info-only. Hover
    reveals an arrow + CTA label *only* on navigable items. */
 const FEATURES: Feature[] = [
   {
@@ -36,14 +36,6 @@ const FEATURES: Feature[] = [
     descKey: 'mihna.featChatDesc',
     ctaKey: 'mihna.featChatCta',
     glyph: <GlyphChat />,
-  },
-  {
-    key: 'analyze',
-    href: '/app/analyze',
-    titleKey: 'mihna.featAnalyzeTitle',
-    descKey: 'mihna.featAnalyzeDesc',
-    ctaKey: 'mihna.featAnalyzeCta',
-    glyph: <GlyphAnalyze />,
   },
   {
     key: 'coverage',
@@ -269,17 +261,6 @@ function GlyphCoverage() {
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <circle cx="9" cy="9" r="6" />
       <path d="M3 9h12M9 3a8 8 0 0 1 0 12M9 3a8 8 0 0 0 0 12" />
-    </svg>
-  );
-}
-function GlyphAnalyze() {
-  /* Three connected nodes — reads as a graph / dependency map. */
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="4" cy="5" r="1.6" />
-      <circle cx="14" cy="6" r="1.6" />
-      <circle cx="9" cy="13" r="1.6" />
-      <path d="M5.3 5.8l7.4 0.4M5 6.5l3 5M13.3 7.3L10 11.5" />
     </svg>
   );
 }

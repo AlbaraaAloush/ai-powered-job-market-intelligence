@@ -11,7 +11,6 @@ import { useLanguage } from '@/lib/i18n';
 const routes = [
   { href: '/app', key: 'dashboard' },
   { href: '/app/chat', key: 'chat' },
-  { href: '/app/analyze', key: 'analyze' },
 ] as const;
 
 export function AppHeader({
