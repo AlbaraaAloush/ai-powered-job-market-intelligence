@@ -7,6 +7,7 @@ import { MihnaWordmark } from '@/components/landing/MihnaWordmark';
 import { LangToggle } from '@/components/landing/LangToggle';
 import { ThemeToggle } from '@/components/landing/ThemeToggle';
 import { useLanguage } from '@/lib/i18n';
+import { useDashboardI18n } from '@/lib/dashboard-i18n';
 
 const routes = [
   { href: '/app', key: 'dashboard' },
@@ -25,20 +26,21 @@ export function AppHeader({
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const { t, dir } = useLanguage();
+  const dashboardI18n = useDashboardI18n();
 
   useEffect(() => {
     routes.forEach((route) => router.prefetch(route.href));
   }, [router]);
 
   return (
-    <header className="app-header" dir="ltr">
+    <header className="app-header" dir={dir}>
       <div className="app-header__brand">
         {onOpenScope && (
           <button
             type="button"
             className="app-icon-button app-header__scope-toggle"
             onClick={onOpenScope}
-            aria-label={scopeOpen ? 'Close data scope' : 'Open data scope'}
+            aria-label={dashboardI18n.t(scopeOpen ? 'header.closeScope' : 'header.openScope')}
             aria-expanded={scopeOpen}
             aria-controls="data-scope"
           >
@@ -50,7 +52,7 @@ export function AppHeader({
         </Link>
       </div>
 
-      <nav className="app-route-nav" aria-label="Workspace">
+      <nav className="app-route-nav" aria-label={dashboardI18n.t('header.workspace')}>
         {routes.map((route) => {
           const currentHref = isPending && pendingHref ? pendingHref : pathname;
           const active = route.href === '/app'
@@ -87,7 +89,7 @@ export function AppHeader({
         })}
       </nav>
 
-      <div className="app-header__actions" dir="ltr">
+      <div className="app-header__actions">
         <LangToggle />
         <ThemeToggle />
       </div>

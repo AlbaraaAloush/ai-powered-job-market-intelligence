@@ -7,18 +7,17 @@ import { Reveal } from './Reveal';
 const SPRING = { type: 'spring' as const, duration: 0.55, bounce: 0 };
 
 const MEMBERS = [
-  { id: 'm1', nameKey: 'mihna.teamMember1Name' },
+  { id: 'm1', nameKey: 'mihna.teamMember1Name', roleKey: 'mihna.teamMember1Role' },
   { id: 'm2', nameKey: 'mihna.teamMember2Name' },
   { id: 'm3', nameKey: 'mihna.teamMember3Name' },
   { id: 'm4', nameKey: 'mihna.teamMember4Name' },
   { id: 'm5', nameKey: 'mihna.teamMember5Name' },
 ];
 
-/* Stripped-down team band: portraits + names only, no eyebrow / lead /
-   role copy. The composition is the content; spacing and the surface
-   tint mark the section. */
+/* Stripped-down team band: portraits and concise identity copy. The
+   composition is the content; spacing and the surface tint mark the section. */
 export function Team() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   return (
     <section
@@ -43,7 +42,8 @@ export function Team() {
         <div className="grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 md:grid-cols-5 md:gap-x-6">
           {MEMBERS.map((m, i) => {
             const name = t(m.nameKey);
-            return <PortraitCard key={m.id} name={name} index={i} />;
+            const role = lang === 'en' && m.roleKey ? t(m.roleKey) : undefined;
+            return <PortraitCard key={m.id} name={name} role={role} index={i} />;
           })}
         </div>
       </div>
@@ -51,7 +51,7 @@ export function Team() {
   );
 }
 
-function PortraitCard({ name, index }: { name: string; index: number }) {
+function PortraitCard({ name, role, index }: { name: string; role?: string; index: number }) {
   const reduce = useReducedMotion();
   const initial = getInitial(name);
 
@@ -103,7 +103,15 @@ function PortraitCard({ name, index }: { name: string; index: number }) {
           fontVariationSettings: '"opsz" 18, "wght" 500',
         }}
       >
-        {name}
+        <span className="block">{name}</span>
+        {role ? (
+          <span
+            className="mt-2 block text-[12px] leading-snug"
+            style={{ color: 'var(--m-ink-2)' }}
+          >
+            {role}
+          </span>
+        ) : null}
       </figcaption>
     </motion.figure>
   );

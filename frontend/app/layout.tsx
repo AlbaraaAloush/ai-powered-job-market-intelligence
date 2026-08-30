@@ -67,6 +67,16 @@ const initScript = `
     if (theme !== 'light' && theme !== 'dark') theme = 'light';
     document.documentElement.setAttribute('data-theme', theme);
 
+    var favicon = document.getElementById('mihna-favicon');
+    if (favicon) {
+      favicon.setAttribute(
+        'href',
+        theme === 'dark'
+          ? '/brand/mihna-favicon-dark.png'
+          : '/brand/mihna-favicon-light.png'
+      );
+    }
+
     var lang = localStorage.getItem('lang');
     if (lang !== 'ar' && lang !== 'en') lang = 'en';
     document.documentElement.lang = lang;
@@ -86,6 +96,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <head>
+        <link
+          id="mihna-favicon"
+          rel="icon"
+          type="image/png"
+          sizes="128x128"
+          href="/brand/mihna-favicon-light.png"
+        />
+        <link
+          rel="apple-touch-icon"
+          type="image/png"
+          sizes="180x180"
+          href="/brand/mihna-apple-touch-icon.png"
+        />
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
       </head>
       <body className="h-full">

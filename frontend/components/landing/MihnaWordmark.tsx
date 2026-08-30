@@ -1,13 +1,11 @@
 'use client';
 
+import Image from 'next/image';
 import { useLanguage } from '@/lib/i18n';
 
-/* Brand placeholder mark. Until the user supplies their own logo, the
-   wordmark renders as a minimal serif/kufi inscription inside a
-   hairline circle — a small instrument-shaped placeholder consistent
-   with the editorial register, easy to swap for an SVG later.
-   Word switches to "مِهنَة" in Arabic; size of the type tightens
-   for the kufi face so heights match optically. */
+/* The symbol is rendered in both theme variants so the server and the
+   first client render stay identical. CSS selects the visible asset
+   from html[data-theme], matching the pre-paint theme initializer. */
 export function MihnaWordmark({
   size = 32,
   showWord = true,
@@ -21,33 +19,31 @@ export function MihnaWordmark({
   return (
     <span
       className="inline-flex items-center gap-2 select-none"
+      dir={isAr ? 'rtl' : 'ltr'}
       style={{ color: 'var(--m-ink)' }}
     >
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 32 32"
+      <span
         aria-hidden="true"
-        className="shrink-0"
+        className="m-brand-mark"
+        style={{ width: size, height: size }}
       >
-        <circle
-          cx="16"
-          cy="16"
-          r="14.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1"
-          opacity="0.4"
+        <Image
+          src="/brand/mihna-mark-light.png"
+          alt=""
+          width={size}
+          height={size}
+          loading="eager"
+          className="m-brand-mark__image m-brand-mark__image--light"
         />
-        {/* Concentric mark — a tiny inscribed circle reads "instrument" */}
-        <circle
-          cx="16"
-          cy="16"
-          r="3.2"
-          fill="currentColor"
-          opacity="0.95"
+        <Image
+          src="/brand/mihna-mark-dark.png"
+          alt=""
+          width={size}
+          height={size}
+          loading="eager"
+          className="m-brand-mark__image m-brand-mark__image--dark"
         />
-      </svg>
+      </span>
       {showWord && (
         <span
           className="m-display"

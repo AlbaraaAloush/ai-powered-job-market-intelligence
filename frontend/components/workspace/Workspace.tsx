@@ -9,6 +9,7 @@ import Sidebar from '@/components/Sidebar';
 import Dashboard from '@/components/Dashboard';
 import Chat from '@/components/Chat';
 import { useLanguage } from '@/lib/i18n';
+import { useDashboardI18n } from '@/lib/dashboard-i18n';
 import { AppHeader } from './AppHeader';
 
 type WorkspaceMode = 'dashboard' | 'chat';
@@ -26,6 +27,7 @@ export function Workspace({ children }: { children: React.ReactNode }) {
   const [loadError, setLoadError] = useState('');
   const reduceMotion = useReducedMotion();
   const { dir } = useLanguage();
+  const dashboardI18n = useDashboardI18n();
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -99,7 +101,7 @@ export function Workspace({ children }: { children: React.ReactNode }) {
   }, [dumps, selected]);
 
   return (
-    <div className="app-workspace" dir="ltr">
+    <div className="app-workspace" dir={dir}>
       <AppHeader
         scopeOpen={sidebarOpen}
         onOpenScope={() => setSidebarOpen((open) => !open)}
@@ -119,9 +121,9 @@ export function Workspace({ children }: { children: React.ReactNode }) {
             >
               <motion.div
                 className="app-sidebar-layer__content"
-                initial={reduceMotion ? false : { x: -16, opacity: 0 }}
+                initial={reduceMotion ? false : { x: dir === 'rtl' ? 16 : -16, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -12, opacity: 0 }}
+                exit={{ x: dir === 'rtl' ? 12 : -12, opacity: 0 }}
                 transition={{
                   duration: reduceMotion ? 0 : 0.18,
                   ease: [0.2, 0, 0, 1],
@@ -150,8 +152,8 @@ export function Workspace({ children }: { children: React.ReactNode }) {
             <WorkspaceLoading mode={mode} />
           ) : loadError ? (
             <div className="app-state" role="alert">
-              <p className="app-state__title">Unable to load the workspace</p>
-              <p>{loadError}</p>
+              <p className="app-state__title">{dashboardI18n.t('state.workspaceUnavailable')}</p>
+              <p>{dashboardI18n.t('state.scopeUnavailable')}</p>
             </div>
           ) : mode === 'dashboard' ? (
             <Dashboard
@@ -175,8 +177,9 @@ export function Workspace({ children }: { children: React.ReactNode }) {
 }
 
 function WorkspaceLoading({ mode }: { mode: WorkspaceMode }) {
+  const i18n = useDashboardI18n();
   return (
-    <div className="app-loading" aria-busy="true" aria-label={`Loading ${mode}`}>
+    <div className="app-loading" aria-busy="true" aria-label={mode === 'dashboard' ? i18n.t('state.loadingDashboard') : i18n.t('common.loading')}>
       <div className="app-loading__line app-loading__line--short" />
       <div className="app-loading__line" />
       <div className="app-loading__grid">

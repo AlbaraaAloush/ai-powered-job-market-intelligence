@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { dashboardExportUrl, fetchDashboardPostings } from '@/lib/api';
 import { DashboardScope, JobPosting, PostingPage } from '@/lib/types';
+import { useDashboardI18n } from '@/lib/dashboard-i18n';
 
 export interface DrilldownRequest {
   title: string;
@@ -10,6 +11,7 @@ export interface DrilldownRequest {
 }
 
 export function DashboardSearch({ onSearch }: { onSearch: (request: DrilldownRequest) => void }) {
+  const i18n = useDashboardI18n();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,15 +32,15 @@ export function DashboardSearch({ onSearch }: { onSearch: (request: DrilldownReq
   function submit(event: FormEvent) {
     event.preventDefault();
     const value = query.trim();
-    if (value) onSearch({ title: `Search: ${value}`, scope: { query: value } });
+    if (value) onSearch({ title: i18n.t('search.title', { query: value }), scope: { query: value } });
   }
 
   return (
     <form onSubmit={submit} className="flex gap-2">
-      <label className="sr-only" htmlFor="dashboard-search">Search job postings</label>
+      <label className="sr-only" htmlFor="dashboard-search">{i18n.t('search.label')}</label>
       <div className="relative min-w-0 flex-1">
         {/* Magnifier icon — optically aligned via inset; reads as a search field at a glance */}
-        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center" style={{ color: 'var(--muted)' }} aria-hidden>
+        <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center" style={{ color: 'var(--muted)' }} aria-hidden>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" />
@@ -51,20 +53,20 @@ export function DashboardSearch({ onSearch }: { onSearch: (request: DrilldownReq
           value={query}
           onChange={event => setQuery(event.target.value)}
           onKeyDown={event => { if (event.key === 'Escape') { setQuery(''); inputRef.current?.blur(); } }}
-          placeholder="Search titles, companies, skills, locations, descriptions…"
+          placeholder={i18n.t('search.placeholder')}
           autoComplete="off"
           spellCheck={false}
           enterKeyHint="search"
-          className="w-full rounded-lg pl-9 pr-20 py-2.5 text-sm focus-ring"
+          className="w-full rounded-lg ps-9 pe-20 py-2.5 text-sm focus-ring"
           style={{ background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)' }}
         />
         {query ? (
           <button
             type="button"
             onClick={() => { setQuery(''); inputRef.current?.focus(); }}
-            aria-label="Clear search"
-            title="Clear (Esc)"
-            className="absolute inset-y-0 right-2 my-auto h-7 w-7 inline-flex items-center justify-center rounded-md pill-hover focus-ring"
+            aria-label={i18n.t('search.clear')}
+            title={i18n.t('search.clearShortcut')}
+            className="absolute inset-y-0 end-2 my-auto h-7 w-7 inline-flex items-center justify-center rounded-md pill-hover focus-ring"
             style={{ color: 'var(--muted)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -75,8 +77,8 @@ export function DashboardSearch({ onSearch }: { onSearch: (request: DrilldownReq
         ) : (
           <kbd
             aria-hidden
-            title="Press / to focus"
-            className="absolute inset-y-0 right-2 my-auto h-6 px-1.5 inline-flex items-center justify-center rounded-md text-[10px] font-semibold nums"
+            title={i18n.t('search.focusShortcut')}
+            className="absolute inset-y-0 end-2 my-auto h-6 px-1.5 inline-flex items-center justify-center rounded-md text-[10px] font-semibold nums"
             style={{
               color: 'var(--muted)',
               background: 'var(--card-alt)',
@@ -89,51 +91,61 @@ export function DashboardSearch({ onSearch }: { onSearch: (request: DrilldownReq
         type="submit"
         className="min-h-10 rounded-lg px-4 text-sm font-semibold pill-hover focus-ring active:scale-[0.96]"
         style={{ background: 'var(--accent)', color: '#fff', transitionProperty: 'transform, background-color, box-shadow' }}>
-        Browse results
+        {i18n.t('search.browse')}
       </button>
     </form>
   );
 }
 
 function PostingCard({ posting }: { posting: JobPosting }) {
+  const i18n = useDashboardI18n();
   const meta = [
-    posting.company, posting.location, posting.sector, posting.timeline,
-    posting.salary, posting.career_level, posting.experience,
+    posting.company,
+    posting.location && i18n.value('location', posting.location),
+    posting.sector && i18n.value('sector', posting.sector),
+    posting.timeline && i18n.value('timeline', posting.timeline),
+    posting.salary,
+    posting.career_level && i18n.value('career', posting.career_level),
+    posting.experience && i18n.value('experience', posting.experience),
   ].filter(Boolean).join(' · ');
+  const title = posting.title ? i18n.value('title', posting.title) : i18n.t('drawer.untitled');
 
   return (
     <article className="rounded-xl p-4 hover-lift" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h3 className="font-semibold text-sm text-pretty" style={{ color: 'var(--text)' }}>
+          <h3 dir="auto" className="font-semibold text-sm text-pretty" style={{ color: 'var(--text)' }}>
             {posting.url
               ? <a href={posting.url} target="_blank" rel="noreferrer"
                   className="inline-flex items-center gap-1 hover:text-purple-400 transition-colors focus-ring rounded-sm">
-                  {posting.title || 'Untitled posting'}
+                  {title}
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="opacity-70">
                     <path d="M7 17 17 7" />
                     <path d="M7 7h10v10" />
                   </svg>
                 </a>
-              : posting.title || 'Untitled posting'}
+              : title}
           </h3>
-          <p className="mt-1 text-xs text-pretty" style={{ color: 'var(--muted)' }}>{meta}</p>
+          <p dir="auto" className="mt-1 text-xs text-pretty" style={{ color: 'var(--muted)' }}>{meta}</p>
         </div>
-        {posting.country && <span className="shrink-0 text-xs" style={{ color: 'var(--muted)' }}>{posting.country}</span>}
+        {posting.country && <span className="shrink-0 text-xs" style={{ color: 'var(--muted)' }}>{i18n.value('country', posting.country)}</span>}
       </div>
       {posting.description && (
-        <p className="mt-3 text-xs leading-relaxed text-pretty" style={{ color: 'var(--muted)' }}>
+        <p dir="ltr" lang="en" className="mt-3 text-xs leading-relaxed text-pretty text-start" style={{ color: 'var(--muted)' }}>
           {posting.description.slice(0, 360)}{posting.description.length > 360 ? '…' : ''}
         </p>
+      )}
+      {i18n.lang === 'ar' && (posting.description || posting.title) && (
+        <p className="mt-2 text-[10px]" style={{ color: 'var(--muted)' }}>{i18n.t('drawer.sourceEnglish')}</p>
       )}
       {posting.skills.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {/* Some postings list the same skill twice (e.g. "SQL" / "SQL").
               Index participates in the key so duplicates don't collide. */}
           {posting.skills.slice(0, 10).map((skill, i) => (
-            <span key={`${skill}-${i}`} className="rounded-full px-2 py-1 text-[11px]"
-              style={{ background: 'var(--card-alt)', color: 'var(--text)' }}>{skill}</span>
+            <span key={`${skill}-${i}`} dir="auto" className="rounded-full px-2 py-1 text-[11px]"
+              style={{ background: 'var(--card-alt)', color: 'var(--text)' }}>{i18n.value('skill', skill)}</span>
           ))}
         </div>
       )}
@@ -150,6 +162,7 @@ export function PostingDrawer({
   dumps: string[];
   onClose: () => void;
 }) {
+  const i18n = useDashboardI18n();
   const [data, setData] = useState<PostingPage | null>(null);
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('');
@@ -186,12 +199,14 @@ export function PostingDrawer({
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (!data) return;
       const pages = Math.max(1, Math.ceil(data.total / data.page_size));
-      if (event.key === 'ArrowLeft'  && page > 1)     setPage(value => value - 1);
-      if (event.key === 'ArrowRight' && page < pages) setPage(value => value + 1);
+      const previousKey = i18n.dir === 'rtl' ? 'ArrowRight' : 'ArrowLeft';
+      const nextKey = i18n.dir === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
+      if (event.key === previousKey && page > 1) setPage(value => value - 1);
+      if (event.key === nextKey && page < pages) setPage(value => value + 1);
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [request, onClose, data, page]);
+  }, [request, onClose, data, page, i18n.dir]);
 
   const exportScope = { ...request.scope, query: [request.scope.query, appliedFilter].filter(Boolean).join(' ') };
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
@@ -200,6 +215,7 @@ export function PostingDrawer({
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/60 drawer-overlay-enter"
+      dir={i18n.dir}
       role="presentation"
       onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <section
@@ -213,26 +229,28 @@ export function PostingDrawer({
           <div className="min-w-0 flex-1">
             <h2 id="posting-drawer-title" className="font-bold text-balance" style={{ color: 'var(--text)' }}>{request.title}</h2>
             <p className="mt-1 text-xs nums" style={{ color: 'var(--muted)' }}>
-              {data ? `${data.total.toLocaleString()} matching postings` : 'Loading matching postings…'}
+              {data
+                ? i18n.t('drawer.matchingCount', { count: i18n.number(data.total) })
+                : i18n.t('drawer.loading')}
             </p>
           </div>
           <a
             className="inline-flex items-center justify-center min-h-9 min-w-9 px-2.5 text-[11px] font-semibold rounded-lg pill-hover focus-ring"
             style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
-            title="Download as CSV"
-            aria-label="Download as CSV"
+            title={i18n.t('common.downloadCsv')}
+            aria-label={i18n.t('common.downloadCsv')}
             href={dashboardExportUrl('postings', dumps, exportScope, 'csv')}>CSV</a>
           <a
             className="inline-flex items-center justify-center min-h-9 min-w-9 px-2.5 text-[11px] font-semibold rounded-lg pill-hover focus-ring"
             style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
-            title="Download as JSON"
-            aria-label="Download as JSON"
+            title={i18n.t('common.downloadJson')}
+            aria-label={i18n.t('common.downloadJson')}
             href={dashboardExportUrl('postings', dumps, exportScope, 'json')}>JSON</a>
           <button
             ref={closeRef}
             onClick={onClose}
-            aria-label="Close detailed results (Esc)"
-            title="Close (Esc)"
+            aria-label={i18n.t('drawer.close')}
+            title={i18n.t('drawer.closeShort')}
             className="inline-flex items-center justify-center h-10 w-10 rounded-lg pill-hover focus-ring"
             style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -252,7 +270,7 @@ export function PostingDrawer({
             setAppliedFilter(filter.trim());
           }}>
           <div className="relative min-w-0 flex-1">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center" style={{ color: 'var(--muted)' }} aria-hidden>
+            <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center" style={{ color: 'var(--muted)' }} aria-hidden>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="7" />
@@ -262,19 +280,19 @@ export function PostingDrawer({
             <input
               value={filter}
               onChange={event => setFilter(event.target.value)}
-              aria-label="Filter current result set"
-              placeholder="Filter these postings"
+              aria-label={i18n.t('drawer.filterLabel')}
+              placeholder={i18n.t('drawer.filterPlaceholder')}
               autoComplete="off"
               spellCheck={false}
               enterKeyHint="search"
-              className="w-full rounded-lg pl-9 pr-9 py-2 text-sm focus-ring"
+              className="w-full rounded-lg ps-9 pe-9 py-2 text-sm focus-ring"
               style={{ background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border)' }} />
             {filter && (
               <button
                 type="button"
                 onClick={() => { setFilter(''); if (appliedFilter) { setAppliedFilter(''); setPage(1); } }}
-                aria-label="Clear filter"
-                className="absolute inset-y-0 right-2 my-auto h-7 w-7 inline-flex items-center justify-center rounded-md pill-hover focus-ring"
+                aria-label={i18n.t('drawer.clearFilter')}
+                className="absolute inset-y-0 end-2 my-auto h-7 w-7 inline-flex items-center justify-center rounded-md pill-hover focus-ring"
                 style={{ color: 'var(--muted)' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -285,16 +303,17 @@ export function PostingDrawer({
             )}
           </div>
           <button
+            type="submit"
             className="min-h-10 rounded-lg px-4 text-sm font-semibold pill-hover focus-ring active:scale-[0.96]"
             style={{ background: 'var(--accent)', color: '#fff', transitionProperty: 'transform, background-color, box-shadow' }}>
-            Filter
+            {i18n.t('drawer.filter')}
           </button>
         </form>
 
         {/* Scrollable results */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-5">
           {error && (
-            <div className="rounded-lg p-4 text-sm text-red-400" role="alert">{error}</div>
+            <div className="rounded-lg p-4 text-sm text-red-400" role="alert" title={error}>{i18n.t('drawer.error')}</div>
           )}
           {loading && (
             <div className="space-y-3" aria-busy="true">
@@ -306,8 +325,8 @@ export function PostingDrawer({
           {data?.items.length === 0 && (
             <div className="p-10 text-center" style={{ color: 'var(--muted)' }}>
               <div className="text-3xl mb-2" aria-hidden>🔍</div>
-              <div className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>No postings match this scope</div>
-              <div className="text-xs">Try clearing the filter or broadening the search.</div>
+              <div className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>{i18n.t('drawer.noMatches')}</div>
+              <div className="text-xs">{i18n.t('drawer.noMatchesHint')}</div>
             </div>
           )}
           <div className="space-y-3">
@@ -325,29 +344,29 @@ export function PostingDrawer({
             <button
               disabled={page === 1}
               onClick={() => setPage(value => value - 1)}
-              aria-label="Previous page"
+              aria-label={i18n.t('drawer.previousPage')}
               className="inline-flex items-center gap-1.5 min-h-10 rounded-lg px-3 text-sm pill-hover focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ border: '1px solid var(--border)' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="m15 18-6-6 6-6" />
+                <path d="m15 18-6-6 6-6" transform={i18n.dir === 'rtl' ? 'translate(24 0) scale(-1 1)' : undefined} />
               </svg>
-              Previous
+              {i18n.t('drawer.previous')}
             </button>
             <span className="text-xs nums" style={{ color: 'var(--muted)' }}>
-              Page <span style={{ color: 'var(--text)' }}>{page}</span> of {pages}
-              <span className="hidden sm:inline"> · use ← → to navigate</span>
+              {i18n.t('drawer.pageOf', { page: i18n.number(page), pages: i18n.number(pages) })}
+              <span className="hidden sm:inline"> · {i18n.t('drawer.keyboardHint')}</span>
             </span>
             <button
               disabled={page === pages}
               onClick={() => setPage(value => value + 1)}
-              aria-label="Next page"
+              aria-label={i18n.t('drawer.nextPage')}
               className="inline-flex items-center gap-1.5 min-h-10 rounded-lg px-3 text-sm pill-hover focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ border: '1px solid var(--border)' }}>
-              Next
+              {i18n.t('drawer.next')}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="m9 18 6-6-6-6" />
+                <path d="m9 18 6-6-6-6" transform={i18n.dir === 'rtl' ? 'translate(24 0) scale(-1 1)' : undefined} />
               </svg>
             </button>
           </div>

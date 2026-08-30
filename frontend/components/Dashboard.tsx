@@ -5,11 +5,13 @@ import { fetchDashboard } from '@/lib/api';
 import { dashboardExportUrl } from '@/lib/api';
 import { DashboardData, DashboardDimension, DashboardScope } from '@/lib/types';
 import {
+  DashboardValueDimension, useDashboardI18n,
+} from '@/lib/dashboard-i18n';
+import {
   DashboardSearch, DrilldownRequest, PostingDrawer,
 } from '@/components/dashboard/DashboardInteractions';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 
 // ── Design tokens ────────────────────────────────────────────────────────────
@@ -26,8 +28,6 @@ const TT_STYLE = {
 };
 const TT_LABEL  = { color: 'var(--text)', fontWeight: 600, marginBottom: 4 };
 const TT_ITEM   = { color: 'var(--muted)', padding: '2px 0' };
-const AX_STYLE  = { fill: 'var(--muted)', fontSize: 11 };
-const Y_STYLE   = { fill: 'var(--text)', fontSize: 11 };
 
 const FLAGS: Record<string, string> = {
   All: '🌍', Qatar: '🇶🇦', UAE: '🇦🇪', 'Saudi Arabia': '🇸🇦',
@@ -36,45 +36,41 @@ const FLAGS: Record<string, string> = {
 
 // ── Shared chart helpers ──────────────────────────────────────────────────────
 
-function tt(extra?: object) {
-  return (
-    <Tooltip
-      contentStyle={TT_STYLE}
-      labelStyle={TT_LABEL}
-      itemStyle={TT_ITEM}
-      // Recharts' default hover cursor is solid #ccc — reads as near-white on dark themes
-      // and gives the bar a harsh flash. A low-opacity card-alt fill is gentle in both themes.
-      cursor={{ fill: 'var(--card-alt)', fillOpacity: 0.35 }}
-      formatter={(v, n) => [Number(v).toLocaleString(), String(n)]}
-      {...extra}
-    />
-  );
-}
-
 /** Single-series horizontal bar (sorted descending = top item largest) */
-function HBar({ data, x, y, color = '#6c63ff', height, onSelect }: {
+function HBar({ data, x, y, dimension, color = '#6c63ff', height, onSelect }: {
   data: Record<string, unknown>[]; x: string; y: string; color?: string; height: number;
+  dimension: DashboardValueDimension;
   onSelect?: (row: Record<string, unknown>) => void;
 }) {
-  // Wrapping div sets cursor for the entire chart area — including the Tooltip's
-  // hover rectangle that recharts draws on top of bars (SVG inherits CSS cursor).
+  const i18n = useDashboardI18n();
+  const sorted = [...data].sort((a, b) => Number(b[x] ?? 0) - Number(a[x] ?? 0));
+  const max = Math.max(...sorted.map(row => Number(row[x] ?? 0)), 1);
+
+  // HTML rows keep translated labels outside the bar geometry. This avoids
+  // SVG text measurement problems and remains readable for long Arabic labels.
   return (
-    <div style={{ cursor: onSelect ? 'pointer' : 'default' }}>
-      <ResponsiveContainer width="100%" height={height} minWidth={0} minHeight={0}>
-        <BarChart data={[...data].reverse()} layout="vertical"
-          margin={{ left: 8, right: 60, top: 4, bottom: 4 }}>
-          <XAxis type="number" tick={AX_STYLE} axisLine={false} tickLine={false}
-            tickFormatter={(v) => Number(v) >= 1000 ? `${(Number(v)/1000).toFixed(1)}k` : String(v)} />
-          <YAxis type="category" dataKey={y} width={175}
-            tick={Y_STYLE} axisLine={false} tickLine={false} />
-          {tt()}
-          <Bar dataKey={x} fill={color} radius={[0, 4, 4, 0]}
-            cursor={onSelect ? 'pointer' : undefined}
-            onClick={entry => onSelect?.(entry.payload as Record<string, unknown>)}
-            label={{ position: 'right', fill: 'var(--muted)', fontSize: 10,
-              formatter: (v: unknown) => Number(v) >= 1000 ? `${(Number(v)/1000).toFixed(1)}k` : String(v) }} />
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="space-y-1 overflow-y-auto pe-1" style={{ maxHeight: height }}>
+      {sorted.map(row => {
+        const count = Number(row[x] ?? 0);
+        const label = i18n.value(dimension, row[y]);
+        return (
+          <button
+            key={String(row[y])}
+            type="button"
+            disabled={!onSelect}
+            onClick={() => onSelect?.(row)}
+            title={`${label}: ${i18n.t('chart.portalTotal', { count: i18n.number(count) })}`}
+            className="grid w-full grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)_3.75rem] items-center gap-3 rounded-md px-2 py-1.5 text-start pill-hover focus-ring disabled:cursor-default sm:grid-cols-[minmax(9rem,15rem)_minmax(0,1fr)_4.5rem]">
+            <span className="text-xs leading-snug line-clamp-2" style={{ color: 'var(--text)' }}>{label}</span>
+            <span className="h-2 overflow-hidden rounded-full" style={{ background: 'var(--card-alt)' }}>
+              <span className="block h-full rounded-full" style={{ width: `${(count / max) * 100}%`, background: color }} />
+            </span>
+            <span dir="ltr" className="text-end text-xs nums" style={{ color: 'var(--muted)' }}>
+              {i18n.compactNumber(count)}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -83,28 +79,48 @@ function HBar({ data, x, y, color = '#6c63ff', height, onSelect }: {
 function HBarStacked({ rows, timelines, tlColors, height }: {
   rows: Record<string, unknown>[]; timelines: string[]; tlColors: Record<string, string>; height: number;
 }) {
-  const sorted = [...rows].sort((a, b) => {
-    const ta = timelines.reduce((s, t) => s + ((a[t] as number) ?? 0), 0);
-    const tb = timelines.reduce((s, t) => s + ((b[t] as number) ?? 0), 0);
-    return ta - tb; // asc = top is largest in horizontal chart
-  });
+  const i18n = useDashboardI18n();
+  const totals = rows.map(row => ({
+    row,
+    total: timelines.reduce((sum, timeline) => sum + Number(row[timeline] ?? 0), 0),
+  })).sort((a, b) => b.total - a.total);
+  const max = Math.max(...totals.map(item => item.total), 1);
 
   return (
-    <ResponsiveContainer width="100%" height={height} minWidth={0} minHeight={0}>
-      <BarChart data={sorted} layout="vertical"
-        margin={{ left: 8, right: 60, top: 4, bottom: 4 }}>
-        <XAxis type="number" tick={AX_STYLE} axisLine={false} tickLine={false}
-          tickFormatter={(v) => Number(v) >= 1000 ? `${(Number(v)/1000).toFixed(1)}k` : String(v)} />
-        <YAxis type="category" dataKey="sector" width={175}
-          tick={Y_STYLE} axisLine={false} tickLine={false} />
-        {tt()}
-        <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)', paddingTop: 8 }} />
-        {timelines.map((tl, i) => (
-          <Bar key={tl} dataKey={tl} stackId="s" fill={tlColors[tl] ?? TL_PALETTE[i % TL_PALETTE.length]}
-            radius={i === timelines.length - 1 ? [0, 4, 4, 0] : [0, 0, 0, 0]} />
+    <div>
+      <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px]" style={{ color: 'var(--muted)' }}>
+        {timelines.map((timeline, index) => (
+          <span key={timeline} className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: tlColors[timeline] ?? TL_PALETTE[index % TL_PALETTE.length] }} />
+            {i18n.value('timeline', timeline)}
+          </span>
         ))}
-      </BarChart>
-    </ResponsiveContainer>
+      </div>
+      <div className="space-y-1 overflow-y-auto pe-1" style={{ maxHeight: height }}>
+        {totals.map(({ row, total }) => (
+          <div key={String(row.sector)} className="grid w-full grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)_3.75rem] items-center gap-3 rounded-md px-2 py-1.5 sm:grid-cols-[minmax(9rem,15rem)_minmax(0,1fr)_4.5rem]">
+            <span className="text-xs leading-snug line-clamp-2" style={{ color: 'var(--text)' }}>
+              {i18n.value('sector', row.sector)}
+            </span>
+            <span className="h-3 overflow-hidden rounded-full" style={{ background: 'var(--card-alt)' }}>
+              <span className="flex h-full overflow-hidden rounded-full" style={{ width: `${total / max * 100}%` }}>
+                {timelines.map((timeline, index) => {
+                  const count = Number(row[timeline] ?? 0);
+                  return count > 0 ? (
+                    <span
+                      key={timeline}
+                      title={`${i18n.value('timeline', timeline)}: ${i18n.t('chart.portalTotal', { count: i18n.number(count) })}`}
+                      style={{ flexBasis: `${count / total * 100}%`, background: tlColors[timeline] ?? TL_PALETTE[index % TL_PALETTE.length] }}
+                    />
+                  ) : null;
+                })}
+              </span>
+            </span>
+            <span dir="ltr" className="text-end text-xs nums" style={{ color: 'var(--muted)' }}>{i18n.compactNumber(total)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -113,10 +129,12 @@ function HBarStacked({ rows, timelines, tlColors, height }: {
  *  Recharts side-labels collide for slices < ~5% and a flat legend with
  *  20+ categories becomes unreadable. We keep the pie clean and put the
  *  detail in a sortable, scrollable, clickable list. */
-function Donut({ data, name, value, onSelect }: {
+function Donut({ data, name, value, dimension, onSelect }: {
   data: Record<string, unknown>[]; name: string; value: string;
+  dimension: DashboardValueDimension;
   onSelect?: (row: Record<string, unknown>) => void;
 }) {
+  const i18n = useDashboardI18n();
   const TOP_N = 6;
   const sorted = [...data].sort((a, b) => Number(b[value] ?? 0) - Number(a[value] ?? 0));
   const total  = sorted.reduce((s, d) => s + Number(d[value] ?? 0), 0);
@@ -130,7 +148,7 @@ function Donut({ data, name, value, onSelect }: {
   };
 
   const top:  Slice[] = sorted.slice(0, TOP_N).map((d, i) => ({
-    label:    String(d[name]),
+    label:    i18n.value(dimension, d[name]),
     count:    Number(d[value] ?? 0),
     color:    CAT_PALETTE[i % CAT_PALETTE.length],
     original: d,
@@ -139,7 +157,7 @@ function Donut({ data, name, value, onSelect }: {
   const rest = sorted.slice(TOP_N);
   const slices: Slice[] = rest.length > 0
     ? [...top, {
-        label:    `Other (${rest.length})`,
+        label:    `${i18n.t('common.other')} (${i18n.number(rest.length)})`,
         count:    rest.reduce((s, d) => s + Number(d[value] ?? 0), 0),
         color:    'var(--muted)',
         original: null,
@@ -181,22 +199,25 @@ function Donut({ data, name, value, onSelect }: {
                 labelStyle={TT_LABEL}
                 itemStyle={TT_ITEM}
                 formatter={(v) => [
-                  `${Number(v).toLocaleString()} (${total ? ((Number(v) / total) * 100).toFixed(1) : '0'}%)`,
-                  'Postings',
+                  i18n.t('chart.postingShare', {
+                    count: i18n.number(Number(v)),
+                    percent: i18n.percent(total ? Number(v) / total * 100 : 0),
+                  }),
+                  i18n.t('chart.postings'),
                 ]}
               />
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--muted)' }}>Total</div>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{i18n.t('chart.total')}</div>
             <div className="text-base @md:text-lg font-bold leading-tight nums" style={{ color: 'var(--text)' }}>
-              {total.toLocaleString()}
+              {i18n.number(total)}
             </div>
           </div>
         </div>
 
         {/* Ranked legend list — full width when stacked, narrower side panel when wide */}
-        <ul className="w-full max-h-[170px] @md:max-h-[220px] overflow-y-auto pr-1 space-y-0.5">
+        <ul className="w-full max-h-[170px] @md:max-h-[220px] overflow-y-auto pe-1 space-y-0.5">
           {slices.map((s, i) => {
             const pct       = total > 0 ? (s.count / total) * 100 : 0;
             const clickable = !s.isOther && !!onSelect;
@@ -206,8 +227,8 @@ function Donut({ data, name, value, onSelect }: {
                   type="button"
                   disabled={!clickable}
                   onClick={() => handlePick(s)}
-                  title={clickable ? `${s.label} — ${s.count.toLocaleString()} (${pct.toFixed(1)}%)` : s.isOther ? `${rest.length} smaller categories` : undefined}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left pill-hover focus-ring cursor-pointer disabled:cursor-not-allowed"
+                  title={clickable ? `${s.label}: ${i18n.t('chart.postingShare', { count: i18n.number(s.count), percent: i18n.percent(pct) })}` : s.isOther ? i18n.t('chart.smallerCategories', { count: i18n.number(rest.length) }) : undefined}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start pill-hover focus-ring cursor-pointer disabled:cursor-not-allowed"
                   style={{ background: 'transparent' }}>
                   <span aria-hidden className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
                   <span
@@ -217,10 +238,10 @@ function Donut({ data, name, value, onSelect }: {
                   </span>
                   {/* Count column is hidden in extra-narrow legend (very tight cards) — % alone tells the story, full count is in the tooltip */}
                   <span className="hidden @xs:inline text-xs nums shrink-0" style={{ color: 'var(--muted)' }}>
-                    {s.count >= 1000 ? `${(s.count / 1000).toFixed(1)}k` : s.count.toLocaleString()}
+                    {i18n.compactNumber(s.count)}
                   </span>
-                  <span className="text-[10px] nums w-10 text-right shrink-0" style={{ color: 'var(--muted)' }}>
-                    {pct.toFixed(pct < 10 ? 1 : 0)}%
+                  <span className="text-[10px] nums w-12 text-end shrink-0" style={{ color: 'var(--muted)' }}>
+                    {i18n.percent(pct, pct < 10 ? 1 : 0)}
                   </span>
                 </button>
               </li>
@@ -244,14 +265,11 @@ function Donut({ data, name, value, onSelect }: {
 //
 // These two components fix all three.
 
-function fmtUsd(n: number) {
-  return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
-}
-
 function SectorSalaryBars({ data, onSelect }: {
   data:      { sector: string; avg_usd: number; count: number }[];
   onSelect?: (row: { sector: string; avg_usd: number; count: number }) => void;
 }) {
+  const i18n = useDashboardI18n();
   const sorted = [...data].sort((a, b) => b.avg_usd - a.avg_usd);
   const max    = Math.max(...sorted.map(d => d.avg_usd), 1);
 
@@ -264,7 +282,7 @@ function SectorSalaryBars({ data, onSelect }: {
 
   return (
     <div
-      className="space-y-0.5 max-h-[420px] overflow-y-auto pr-1"
+      className="space-y-0.5 max-h-[420px] overflow-y-auto pe-1"
       style={{ cursor: onSelect ? 'pointer' : 'default' }}>
       {sorted.map(row => {
         const pct       = (row.avg_usd / max) * 100;
@@ -278,15 +296,15 @@ function SectorSalaryBars({ data, onSelect }: {
             onClick={() => onSelect?.(row)}
             disabled={!onSelect}
             title={[
-              row.sector,
-              `Average: ${fmtUsd(row.avg_usd)}/mo`,
-              `Sample size: ${row.count.toLocaleString()} postings`,
-              lowSample ? '⚠ Low sample — interpret with caution' : '',
-              outlier   ? '⚠ Potential outlier (more than 3× median)' : '',
+              i18n.value('sector', row.sector),
+              i18n.t('chart.average', { amount: i18n.currency(row.avg_usd) }),
+              i18n.t('chart.sampleSize', { count: i18n.number(row.count) }),
+              lowSample ? `⚠ ${i18n.t('chart.lowSample')}` : '',
+              outlier   ? `⚠ ${i18n.t('chart.outlier')}` : '',
             ].filter(Boolean).join('\n')}
-            className="w-full grid grid-cols-[150px_1fr_64px_64px] gap-3 items-center px-2 py-1.5 rounded-md pill-hover focus-ring text-left cursor-pointer disabled:cursor-not-allowed">
+            className="w-full grid grid-cols-[minmax(7rem,150px)_1fr_76px_72px] gap-3 items-center px-2 py-1.5 rounded-md pill-hover focus-ring text-start cursor-pointer disabled:cursor-not-allowed">
             <span className="text-xs truncate" style={{ color: 'var(--text)' }}>
-              {row.sector}
+              {i18n.value('sector', row.sector)}
             </span>
             <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--card-alt)' }}>
               <div
@@ -298,13 +316,13 @@ function SectorSalaryBars({ data, onSelect }: {
                   transition: 'width 320ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease',
                 }} />
             </div>
-            <span className="text-xs nums text-right" style={{ color: 'var(--text)' }}>
-              {fmtUsd(row.avg_usd)}
+            <span dir="ltr" className="text-xs nums text-end" style={{ color: 'var(--text)' }}>
+              {i18n.currency(row.avg_usd)}
             </span>
             <span
-              className="text-[10px] nums text-right inline-flex items-center justify-end gap-0.5"
+              className="text-[10px] nums text-end inline-flex items-center justify-end gap-0.5"
               style={{ color: 'var(--muted)' }}>
-              n={row.count.toLocaleString()}
+              n={i18n.number(row.count)}
               {dim && <span aria-hidden style={{ color: '#ffd93d' }}>⚠</span>}
             </span>
           </button>
@@ -312,7 +330,7 @@ function SectorSalaryBars({ data, onSelect }: {
       })}
       {sorted.some(r => r.count < 5 || (median > 0 && r.avg_usd > median * 3)) && (
         <p className="text-[10px] pt-2 mt-1 border-t" style={{ color: 'var(--muted)', borderColor: 'var(--border)' }}>
-          <span style={{ color: '#ffd93d' }}>⚠</span> Low sample size or 3× median outlier — average may be unreliable.
+          <span style={{ color: '#ffd93d' }}>⚠</span> {i18n.t('chart.salaryCaution')}
         </p>
       )}
     </div>
@@ -323,6 +341,7 @@ function SalaryBracketBars({ data, onSelect }: {
   data:      { bracket: string; count: number }[];
   onSelect?: (row: { bracket: string; count: number }) => void;
 }) {
+  const i18n = useDashboardI18n();
   const max     = Math.max(...data.map(d => d.count), 1);
   const total   = data.reduce((s, d) => s + d.count, 0);
   const peakIdx = data.reduce((mi, d, i, arr) => d.count > arr[mi].count ? i : mi, 0);
@@ -346,8 +365,8 @@ function SalaryBracketBars({ data, onSelect }: {
               type="button"
               onClick={() => onSelect?.(row)}
               disabled={!onSelect}
-              aria-label={`${row.bracket}: ${row.count.toLocaleString()} postings (${pct.toFixed(1)}%)`}
-              title={`${row.bracket}\n${row.count.toLocaleString()} postings (${pct.toFixed(1)}%)`}
+              aria-label={`${i18n.value('salaryBracket', row.bracket)}: ${i18n.t('chart.postingShare', { count: i18n.number(row.count), percent: i18n.percent(pct) })}`}
+              title={`${i18n.value('salaryBracket', row.bracket)}\n${i18n.t('chart.postingShare', { count: i18n.number(row.count), percent: i18n.percent(pct) })}`}
               className="flex-1 group relative focus-ring rounded-md cursor-pointer disabled:cursor-not-allowed">
               {/* Bar — anchored to the bottom of the column */}
               <div
@@ -364,7 +383,7 @@ function SalaryBracketBars({ data, onSelect }: {
               <span
                 className={`absolute left-0 right-0 text-center text-[10px] nums leading-none transition-opacity duration-150 ${isPeak ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                 style={{ bottom: `calc(${barH}% + 4px)`, color: 'var(--text)' }}>
-                {row.count.toLocaleString()}
+                {i18n.number(row.count)}
               </span>
             </button>
           );
@@ -377,7 +396,7 @@ function SalaryBracketBars({ data, onSelect }: {
             className="flex-1 text-[10px] text-center truncate"
             style={{ color: 'var(--muted)' }}
             title={row.bracket}>
-            {row.bracket}
+            {i18n.value('salaryBracket', row.bracket)}
           </span>
         ))}
       </div>
@@ -396,6 +415,7 @@ function CountryPctBars({ data, accent = '#00c9a7', onSelect }: {
   accent?:   string;
   onSelect?: (row: { country: string; pct: number; count: number }) => void;
 }) {
+  const i18n = useDashboardI18n();
   const sorted = [...data].sort((a, b) => b.pct - a.pct);
   const max    = Math.max(...sorted.map(d => d.pct), 1);
   return (
@@ -408,11 +428,11 @@ function CountryPctBars({ data, accent = '#00c9a7', onSelect }: {
             type="button"
             onClick={() => onSelect?.(row)}
             disabled={!onSelect}
-            title={`${row.country} — ${row.count.toLocaleString()} matching postings (${row.pct.toFixed(1)}%)`}
-            className="w-full grid grid-cols-[120px_1fr_64px] gap-3 items-center px-2 py-1.5 rounded-md pill-hover focus-ring text-left cursor-pointer disabled:cursor-not-allowed">
+            title={`${i18n.value('country', row.country)}: ${i18n.t('chart.matchingPostings', { count: i18n.number(row.count), percent: i18n.percent(row.pct) })}`}
+            className="w-full grid grid-cols-[minmax(7rem,130px)_1fr_72px] gap-3 items-center px-2 py-1.5 rounded-md pill-hover focus-ring text-start cursor-pointer disabled:cursor-not-allowed">
             <span className="text-xs inline-flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
               <span aria-hidden>{FLAGS[row.country] ?? '🌍'}</span>
-              <span className="truncate">{row.country}</span>
+              <span className="truncate">{i18n.value('country', row.country)}</span>
             </span>
             <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--card-alt)' }}>
               <div className="h-full rounded-full"
@@ -422,8 +442,8 @@ function CountryPctBars({ data, accent = '#00c9a7', onSelect }: {
                   transition: 'width 320ms cubic-bezier(0.2, 0, 0, 1)',
                 }} />
             </div>
-            <span className="text-xs nums text-right" style={{ color: 'var(--text)' }}>
-              {row.pct.toFixed(1)}%
+            <span dir="ltr" className="text-xs nums text-end" style={{ color: 'var(--text)' }}>
+              {i18n.percent(row.pct)}
             </span>
           </button>
         );
@@ -436,10 +456,11 @@ function BilingualBars({ data, onSelect }: {
   data:      { country: string; en_only: number; ar_only: number; both: number }[];
   onSelect?: (row: { country: string; segment: 'en_only' | 'ar_only' | 'both' }) => void;
 }) {
+  const i18n = useDashboardI18n();
   const SEG = [
-    { key: 'both',    label: 'Bilingual (EN + AR)', color: 'var(--accent)' },
-    { key: 'en_only', label: 'English only',        color: '#00c9a7'       },
-    { key: 'ar_only', label: 'Arabic only',         color: '#ffd93d'       },
+    { key: 'both',    label: i18n.t('chart.bilingual'), color: 'var(--accent)' },
+    { key: 'en_only', label: i18n.t('chart.englishOnly'), color: '#00c9a7' },
+    { key: 'ar_only', label: i18n.t('chart.arabicOnly'), color: '#ffd93d' },
   ] as const;
 
   return (
@@ -452,10 +473,10 @@ function BilingualBars({ data, onSelect }: {
             <div className="flex items-baseline justify-between mb-1.5 px-1">
               <span className="text-xs font-semibold inline-flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
                 <span aria-hidden>{FLAGS[row.country] ?? '🌍'}</span>
-                <span>{row.country}</span>
+                <span>{i18n.value('country', row.country)}</span>
               </span>
               <span className="text-[10px] nums" style={{ color: 'var(--muted)' }}>
-                {total.toLocaleString()} postings
+                {i18n.t('chart.portalTotal', { count: i18n.number(total) })}
               </span>
             </div>
             <div className="flex h-3 rounded-full overflow-hidden" style={{ background: 'var(--card-alt)' }}>
@@ -465,7 +486,7 @@ function BilingualBars({ data, onSelect }: {
                   type="button"
                   onClick={() => onSelect?.({ country: row.country, segment: s.key })}
                   disabled={!onSelect}
-                  title={`${s.label} — ${s.n.toLocaleString()} (${s.pct.toFixed(1)}%)`}
+                  title={`${s.label}: ${i18n.t('chart.postingShare', { count: i18n.number(s.n), percent: i18n.percent(s.pct) })}`}
                   className="cursor-pointer disabled:cursor-not-allowed"
                   style={{
                     width:      `${s.pct}%`,
@@ -481,7 +502,7 @@ function BilingualBars({ data, onSelect }: {
               {segs.map(s => (
                 <span key={s.key} className="inline-flex items-center gap-1">
                   <span aria-hidden className="h-2 w-2 rounded-sm" style={{ background: s.color }} />
-                  {s.label.replace(' (EN + AR)', '').replace(' only', '')} · {s.pct.toFixed(0)}%
+                  {s.label} · {i18n.percent(s.pct, 0)}
                 </span>
               ))}
             </div>
@@ -496,10 +517,11 @@ function ArabicTermsBars({ data, onSelect }: {
   data:      { term: string; count: number }[];
   onSelect?: (row: { term: string; count: number }) => void;
 }) {
+  const i18n = useDashboardI18n();
   const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 20);
   const max    = Math.max(...sorted.map(d => d.count), 1);
   return (
-    <div className="space-y-0.5 max-h-[480px] overflow-y-auto pr-1"
+    <div className="space-y-0.5 max-h-[480px] overflow-y-auto pe-1"
          style={{ cursor: onSelect ? 'pointer' : 'default' }}>
       {sorted.map((row, i) => {
         const w = (row.count / max) * 100;
@@ -509,8 +531,8 @@ function ArabicTermsBars({ data, onSelect }: {
             type="button"
             onClick={() => onSelect?.(row)}
             disabled={!onSelect}
-            title={`${row.term} — ${row.count.toLocaleString()} postings`}
-            className="w-full grid grid-cols-[180px_1fr_72px] gap-3 items-center px-2 py-1.5 rounded-md pill-hover focus-ring text-left cursor-pointer disabled:cursor-not-allowed">
+            title={`${row.term}: ${i18n.t('chart.portalTotal', { count: i18n.number(row.count) })}`}
+            className="w-full grid grid-cols-[minmax(8rem,180px)_1fr_72px] gap-3 items-center px-2 py-1.5 rounded-md pill-hover focus-ring text-start cursor-pointer disabled:cursor-not-allowed">
             {/* RTL container so Arabic text aligns naturally and punctuation sits on the right edge */}
             <span dir="rtl" lang="ar" className="text-sm truncate" style={{ color: 'var(--text)', fontFamily: '"Noto Naskh Arabic", "Segoe UI", sans-serif' }}>
               {row.term}
@@ -523,8 +545,8 @@ function ArabicTermsBars({ data, onSelect }: {
                   transition: 'width 320ms cubic-bezier(0.2, 0, 0, 1)',
                 }} />
             </div>
-            <span className="text-xs nums text-right" style={{ color: 'var(--text)' }}>
-              {row.count.toLocaleString()}
+            <span className="text-xs nums text-end" style={{ color: 'var(--text)' }}>
+              {i18n.number(row.count)}
             </span>
           </button>
         );
@@ -540,6 +562,7 @@ function Card({ title, subtitle, children, exportUrls, index = 0 }: {
   exportUrls?: { csv: string; json: string };
   index?: number;
 }) {
+  const i18n = useDashboardI18n();
   return (
     <div
       className="rounded-xl mb-5 overflow-hidden hover-lift card-in"
@@ -557,14 +580,14 @@ function Card({ title, subtitle, children, exportUrls, index = 0 }: {
           <div className="flex gap-1.5">
             <a
               href={exportUrls.csv}
-              title="Download as CSV"
-              aria-label="Download as CSV"
+              title={i18n.t('common.downloadCsv')}
+              aria-label={i18n.t('common.downloadCsv')}
               className="inline-flex items-center justify-center min-h-9 min-w-9 px-2.5 text-[11px] font-semibold tracking-wide rounded-lg pill-hover focus-ring"
               style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>CSV</a>
             <a
               href={exportUrls.json}
-              title="Download as JSON"
-              aria-label="Download as JSON"
+              title={i18n.t('common.downloadJson')}
+              aria-label={i18n.t('common.downloadJson')}
               className="inline-flex items-center justify-center min-h-9 min-w-9 px-2.5 text-[11px] font-semibold tracking-wide rounded-lg pill-hover focus-ring"
               style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>JSON</a>
           </div>
@@ -580,9 +603,10 @@ function Card({ title, subtitle, children, exportUrls, index = 0 }: {
 function CountryTabs({ countries, counts, active, onChange }: {
   countries: string[]; counts: Record<string, number>; active: string; onChange: (c: string) => void;
 }) {
+  const i18n = useDashboardI18n();
   const all = ['All', ...countries];
   return (
-    <div className="flex gap-2 flex-wrap" role="tablist" aria-label="Country filter">
+    <div className="flex gap-2 flex-wrap" role="tablist" aria-label={i18n.t('filters.country')}>
       {all.map(c => {
         const isActive = active === c;
         return (
@@ -596,14 +620,14 @@ function CountryTabs({ countries, counts, active, onChange }: {
               ? { background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', boxShadow: '0 1px 2px rgba(108,99,255,0.25), 0 4px 12px rgba(108,99,255,0.18)' }
               : { background: 'var(--card)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
             <span aria-hidden>{FLAGS[c] ?? '🌍'}</span>
-            <span>{c}</span>
+            <span>{i18n.value('country', c)}</span>
             {c !== 'All' && counts[c] !== undefined && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-md text-[10px] nums"
+              <span className="ms-1 px-1.5 py-0.5 rounded-md text-[10px] nums"
                 style={{
                   background: isActive ? 'rgba(255,255,255,0.22)' : 'var(--card-alt)',
                   color: isActive ? '#fff' : 'var(--muted)',
                 }}>
-                {counts[c].toLocaleString()}
+                {i18n.number(counts[c])}
               </span>
             )}
           </button>
@@ -616,10 +640,11 @@ function CountryTabs({ countries, counts, active, onChange }: {
 function TimelinePills({ timelines, tlColors, active, onChange }: {
   timelines: string[]; tlColors: Record<string, string>; active: string; onChange: (t: string) => void;
 }) {
+  const i18n = useDashboardI18n();
   const all = ['All', ...timelines];
   return (
-    <div className="flex gap-2 flex-wrap items-center" role="tablist" aria-label="Timeline filter">
-      <span className="text-xs font-semibold mr-1" style={{ color: 'var(--muted)' }}>Timeline:</span>
+    <div className="flex gap-2 flex-wrap items-center" role="tablist" aria-label={i18n.t('filters.timeline')}>
+      <span className="text-xs font-semibold me-1" style={{ color: 'var(--muted)' }}>{i18n.t('filters.timelineLabel')}</span>
       {all.map((t, i) => {
         const isActive = active === t;
         const bgColor  = t === 'All' ? 'var(--accent)' : (tlColors[t] ?? TL_PALETTE[(i - 1) % TL_PALETTE.length]);
@@ -633,7 +658,7 @@ function TimelinePills({ timelines, tlColors, active, onChange }: {
             style={isActive
               ? { background: bgColor, color: '#fff', border: `1px solid ${bgColor}`, boxShadow: `0 1px 2px ${bgColor}33, 0 4px 10px ${bgColor}22` }
               : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-            {t}
+            {i18n.value('timeline', t)}
           </button>
         );
       })}
@@ -657,6 +682,11 @@ function pivotSectors(raw: { sector: string; count: number; _timeline?: string }
   return { rows, timelines };
 }
 
+function sectorRowTotal(row: Record<string, unknown>) {
+  return Object.entries(row).reduce((total, [key, value]) =>
+    key === 'sector' ? total : total + Number(value ?? 0), 0);
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface Props {
@@ -671,6 +701,7 @@ interface Props {
 }
 
 export default function Dashboard({ selectedDumps, allTimelines, activeTimeline, onTimelineSelect, allCountries, allCountryCounts, activeCountry, onCountrySelect }: Props) {
+  const i18n = useDashboardI18n();
   const [data,     setData]     = useState<DashboardData | null>(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -749,11 +780,13 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
 
     let loadingTimer:  ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    const controller = new AbortController();
 
     const debounce = setTimeout(() => {
       loadingTimer = setTimeout(() => { if (!cancelled) setLoading(true); }, 250);
       fetchDashboard(
         { dumps: dumpsKey.split(','), sector: activeSector !== 'All' ? activeSector : undefined },
+        controller.signal,
       )
         .then(d => {
           if (cancelled) return;
@@ -777,6 +810,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
 
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(debounce);
       if (loadingTimer) clearTimeout(loadingTimer);
     };
@@ -812,13 +846,13 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
         <div className="skeleton h-64" />
         <div className="skeleton h-64" />
       </div>
-      <span className="sr-only">Loading dashboard…</span>
+      <span className="sr-only">{i18n.t('state.loadingDashboard')}</span>
     </div>
   );
 
   if (error) return (
     <div className="p-8 text-center">
-      <div className="text-red-400 text-sm">{error}</div>
+      <div className="text-red-400 text-sm" title={error}>{i18n.t('state.scopeUnavailable')}</div>
     </div>
   );
 
@@ -849,17 +883,17 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       <div className="px-5 pb-5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           {[
-            { icon: '📋', label: 'Total Postings',   value: '0' },
-            { icon: '💰', label: 'Salary Coverage',  value: '0%' },
-            { icon: '🗓', label: 'Timeline',         value: '—' },
-            { icon: '🏢', label: 'Top Sector',       value: '—' },
+            { icon: '📋', label: i18n.t('kpi.totalPostings'), value: i18n.number(0) },
+            { icon: '💰', label: i18n.t('kpi.salaryCoverage'), value: i18n.percent(0) },
+            { icon: '🗓', label: i18n.t('kpi.timeline'), value: i18n.t('common.none') },
+            { icon: '🏢', label: i18n.t('kpi.topSector'), value: i18n.t('common.none') },
           ].map((k, i) => (
             <div key={i} className="rounded-xl p-4 hover-lift"
                  style={{ background: 'var(--card)', border: '1px solid var(--border)', opacity: 0.65 }}>
               <div className="text-xl mb-1" aria-hidden>{k.icon}</div>
               <div className="text-xl font-bold leading-tight nums" style={{ color: 'var(--text)' }}>{k.value}</div>
               <div className="text-xs mt-1 font-semibold" style={{ color: 'var(--muted)' }}>{k.label}</div>
-              <div className="text-xs" style={{ color: 'var(--muted)' }}>no datasets selected</div>
+              <div className="text-xs" style={{ color: 'var(--muted)' }}>{i18n.t('state.noDatasetsShort')}</div>
             </div>
           ))}
         </div>
@@ -868,11 +902,10 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
              style={{ background: 'var(--card)', border: '1px dashed var(--border)' }}>
           <div className="text-4xl mb-3" aria-hidden>📭</div>
           <div className="text-sm font-bold mb-1" style={{ color: 'var(--text)' }}>
-            No datasets selected
+            {i18n.t('state.noDatasets')}
           </div>
           <p className="text-xs max-w-md mx-auto text-pretty" style={{ color: 'var(--muted)' }}>
-            Every statistic is zero because nothing is in scope. Pick datasets in the sidebar,
-            or click a country above to select all of its dumps at once.
+            {i18n.t('state.noDatasetsDescription')}
           </p>
         </div>
       </div>
@@ -921,7 +954,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
           {/* Sector filter */}
           {allSectors.length > 0 && (
             <div className="flex items-center gap-3 flex-wrap pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-              <span className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>Sector:</span>
+              <span className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>{i18n.t('filters.sectorLabel')}</span>
               <div className="flex gap-2 flex-wrap flex-1">
                 <button
                   onClick={() => setActiveSector('All')}
@@ -929,7 +962,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
                   style={activeSector === 'All'
                     ? { background: 'var(--card-alt)', color: 'var(--text)', border: '1px solid var(--muted)' }
                     : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                  All Sectors
+                  {i18n.t('filters.allSectors')}
                 </button>
                 {allSectors.map(s => (
                   <button key={s} onClick={() => setActiveSector(s)}
@@ -937,7 +970,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
                     style={activeSector === s
                       ? { background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', boxShadow: '0 1px 2px rgba(108,99,255,0.25), 0 4px 10px rgba(108,99,255,0.18)' }
                       : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                    {s}
+                    {i18n.value('sector', s)}
                   </button>
                 ))}
               </div>
@@ -946,7 +979,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
                   onClick={() => setActiveSector('All')}
                   className="inline-flex items-center gap-1 text-xs px-2 min-h-8 rounded-lg pill-hover focus-ring"
                   style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                  <span aria-hidden>✕</span> Clear
+                  <span aria-hidden>✕</span> {i18n.t('common.clear')}
                 </button>
               )}
             </div>
@@ -974,30 +1007,34 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {[
           {
-            icon: '📋', label: 'Total Postings',
-            value: data.total.toLocaleString(),
-            sub: activeCountry !== 'All' ? `in ${activeCountry}` : `${allCountries.length} countries`,
+            icon: '📋', label: i18n.t('kpi.totalPostings'),
+            value: i18n.number(data.total),
+            sub: activeCountry !== 'All'
+              ? i18n.t('kpi.inCountry', { country: i18n.value('country', activeCountry) })
+              : i18n.t('kpi.countryCount', { count: i18n.number(allCountries.length) }),
           },
           {
-            icon: '💰', label: 'Salary Coverage',
-            value: `${data.salary.coverage_pct}%`,
-            sub: data.salary.avg_usd ? `avg $${Number(data.salary.avg_usd).toLocaleString()}/mo` : 'of postings disclose',
+            icon: '💰', label: i18n.t('kpi.salaryCoverage'),
+            value: i18n.percent(data.salary.coverage_pct),
+            sub: data.salary.avg_usd
+              ? i18n.t('kpi.averageMonthly', { amount: i18n.currency(Number(data.salary.avg_usd)) })
+              : i18n.t('kpi.disclosureShare'),
           },
           data.kpi_mom
             ? {
-                icon: '📈', label: `${data.kpi_mom.t1} → ${data.kpi_mom.t2}`,
-                value: data.kpi_mom.c2.toLocaleString(),
-                delta: `${data.kpi_mom.pct > 0 ? '+' : ''}${data.kpi_mom.pct}%`,
-                sub: `from ${data.kpi_mom.c1.toLocaleString()}`,
+                icon: '📈', label: `${i18n.value('timeline', data.kpi_mom.t1)} → ${i18n.value('timeline', data.kpi_mom.t2)}`,
+                value: i18n.number(data.kpi_mom.c2),
+                delta: `${data.kpi_mom.pct > 0 ? '+' : ''}${i18n.percent(data.kpi_mom.pct)}`,
+                sub: i18n.t('kpi.fromCount', { count: i18n.number(data.kpi_mom.c1) }),
               }
             : {
-                icon: '🗓', label: 'Timeline',
-                value: activeTimeline !== 'All' ? activeTimeline : 'All periods',
-                sub: `${data.timelines.length} snapshots`,
+                icon: '🗓', label: i18n.t('kpi.timeline'),
+                value: activeTimeline !== 'All' ? i18n.value('timeline', activeTimeline) : i18n.t('kpi.allPeriods'),
+                sub: i18n.t('kpi.snapshotCount', { count: i18n.number(data.timelines.length) }),
               },
           activeSector !== 'All'
-            ? { icon: '🏭', label: 'Sector Filter', value: activeSector, sub: `${data.total.toLocaleString()} postings` }
-            : { icon: '🏢', label: 'Top Sector', value: sectorRows.length > 0 ? String(sectorRows[sectorRows.length - 1]?.sector ?? '—') : '—', sub: 'by posting volume' },
+            ? { icon: '🏭', label: i18n.t('kpi.sectorFilter'), value: i18n.value('sector', activeSector), sub: i18n.t('kpi.postingCount', { count: i18n.number(data.total) }) }
+            : { icon: '🏢', label: i18n.t('kpi.topSector'), value: sectorRows.length > 0 ? i18n.value('sector', sectorRows.reduce((best, row) => sectorRowTotal(row) > sectorRowTotal(best) ? row : best).sector) : i18n.t('common.none'), sub: i18n.t('kpi.byVolume') },
         ].map((k, i) => (
           <div key={i} className="rounded-xl p-4 hover-lift card-in"
                style={{
@@ -1021,13 +1058,15 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {/* ── Sectors ────────────────────────────────────────────────────────── */}
       {sectorRows.length > 0 && (
         <Card
-          title="📊 Postings by Sector"
-          subtitle={sectorTL.length > 1 ? `Stacked by timeline — ${sectorTL.join(', ')}. Export includes the full ranking.` : 'Click a sector to browse matching postings. Export includes the full ranking.'}
+          title={`📊 ${i18n.t('card.sectors')}`}
+          subtitle={sectorTL.length > 1
+            ? i18n.t('card.sectorsStacked', { timelines: sectorTL.map(timeline => i18n.value('timeline', timeline)).join(', ') })
+            : i18n.t('card.sectorsClickable')}
           exportUrls={exportUrls('sector')}>
           {sectorTL.length > 1
             ? <HBarStacked rows={sectorRows} timelines={sectorTL} tlColors={tlColors} height={sectorHeight} />
-            : <HBar data={sectorRows} x="count" y="sector" color="#6c63ff" height={sectorHeight}
-                onSelect={row => openDrilldown(String(row.sector), { sector: String(row.sector) })} />
+            : <HBar data={sectorRows} x="count" y="sector" dimension="sector" color="#6c63ff" height={sectorHeight}
+                onSelect={row => openDrilldown(i18n.value('sector', row.sector), { sector: String(row.sector) })} />
           }
         </Card>
       )}
@@ -1039,21 +1078,21 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
         return (
           <div className={`grid grid-cols-1 ${cols} gap-5`}>
             {data.career_levels.length > 0 && (
-              <Card title="🎯 Career Level" subtitle="Click a segment to browse matching postings." exportUrls={exportUrls('career_level')}>
-                <Donut data={data.career_levels} name="level" value="count"
-                  onSelect={row => openDrilldown(String(row.level), { career_level: String(row.level) })} />
+              <Card title={`🎯 ${i18n.t('card.career')}`} subtitle={i18n.t('card.segmentClickable')} exportUrls={exportUrls('career_level')}>
+                <Donut data={data.career_levels} name="level" value="count" dimension="career"
+                  onSelect={row => openDrilldown(i18n.value('career', row.level), { career_level: String(row.level) })} />
               </Card>
             )}
             {data.employment_types.length > 0 && (
-              <Card title="💼 Employment Type" exportUrls={exportUrls('employment_type')}>
-                <Donut data={data.employment_types} name="type" value="count"
-                  onSelect={row => openDrilldown(String(row.type), { employment_type: String(row.type) })} />
+              <Card title={`💼 ${i18n.t('card.employment')}`} exportUrls={exportUrls('employment_type')}>
+                <Donut data={data.employment_types} name="type" value="count" dimension="employment"
+                  onSelect={row => openDrilldown(i18n.value('employment', row.type), { employment_type: String(row.type) })} />
               </Card>
             )}
             {hasEdu && (
-              <Card title="🎓 Education Requirements" subtitle="Highest credential mentioned in the posting." exportUrls={exportUrls('education')}>
-                <Donut data={data.education!} name="level" value="count"
-                  onSelect={row => openDrilldown(String(row.level), { education: String(row.level) })} />
+              <Card title={`🎓 ${i18n.t('card.education')}`} subtitle={i18n.t('card.educationSubtitle')} exportUrls={exportUrls('education')}>
+                <Donut data={data.education!} name="level" value="count" dimension="education"
+                  onSelect={row => openDrilldown(i18n.value('education', row.level), { education: String(row.level) })} />
               </Card>
             )}
           </div>
@@ -1063,22 +1102,22 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {/* ── Salary ─────────────────────────────────────────────────────────── */}
       {data.salary.n_disclosed > 0 && (
         <Card
-          title="💰 Salary Intelligence"
-          subtitle={`${data.salary.coverage_pct}% of postings disclose salary — ${data.salary.n_disclosed.toLocaleString()} postings`}>
+          title={`💰 ${i18n.t('card.salary')}`}
+          subtitle={i18n.t('card.salarySubtitle', { percent: i18n.percent(data.salary.coverage_pct), count: i18n.number(data.salary.n_disclosed) })}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {data.salary.by_sector.length > 0 && (
               <div>
                 <div className="flex items-baseline justify-between mb-3">
                   <div className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>
-                    Average Monthly Salary by Sector
+                    {i18n.t('card.salaryBySector')}
                   </div>
                   <div className="text-[10px] nums" style={{ color: 'var(--muted)' }}>
-                    sorted by avg · USD
+                    {i18n.t('card.salarySorted')}
                   </div>
                 </div>
                 <SectorSalaryBars
                   data={data.salary.by_sector}
-                  onSelect={row => openDrilldown(`Salary disclosures · ${row.sector}`, { sector: row.sector })}
+                  onSelect={row => openDrilldown(i18n.t('chart.salaryDisclosures', { sector: i18n.value('sector', row.sector) }), { sector: row.sector })}
                 />
               </div>
             )}
@@ -1086,15 +1125,15 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
               <div>
                 <div className="flex items-baseline justify-between mb-3">
                   <div className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>
-                    Salary Brackets (USD / month)
+                    {i18n.t('card.salaryBrackets')}
                   </div>
                   <div className="text-[10px] nums" style={{ color: 'var(--muted)' }}>
-                    peak highlighted
+                    {i18n.t('card.salaryPeak')}
                   </div>
                 </div>
                 <SalaryBracketBars
                   data={data.salary.distribution}
-                  onSelect={row => openDrilldown(`Salary ${row.bracket}`, { salary_bracket: row.bracket })}
+                  onSelect={row => openDrilldown(i18n.t('chart.salaryRange', { range: i18n.value('salaryBracket', row.bracket) }), { salary_bracket: row.bracket })}
                 />
               </div>
             )}
@@ -1104,27 +1143,27 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
 
       {/* ── Skills ─────────────────────────────────────────────────────────── */}
       {data.skills.length > 0 && (
-        <Card title="🛠 Top In-Demand Skills" subtitle="The chart shows top results; export includes every extracted skill."
+        <Card title={`🛠 ${i18n.t('card.skills')}`} subtitle={i18n.t('card.skillsSubtitle')}
           exportUrls={exportUrls('skill')}>
-          <HBar data={data.skills} x="count" y="skill" color="#a855f7"
+          <HBar data={data.skills} x="count" y="skill" dimension="skill" color="#a855f7"
             height={Math.max(280, data.skills.length * 30)}
-            onSelect={row => openDrilldown(String(row.skill), { skill: String(row.skill) })} />
+            onSelect={row => openDrilldown(i18n.value('skill', row.skill), { skill: String(row.skill) })} />
         </Card>
       )}
 
       {/* ── Job titles ─────────────────────────────────────────────────────── */}
       {data.job_titles.length > 0 && (
-        <Card title="📋 Most Advertised Positions" exportUrls={exportUrls('title')}>
-          <HBar data={data.job_titles} x="count" y="title" color="#ffd93d"
+        <Card title={`📋 ${i18n.t('card.titles')}`} exportUrls={exportUrls('title')}>
+          <HBar data={data.job_titles} x="count" y="title" dimension="title" color="#ffd93d"
             height={Math.max(280, data.job_titles.length * 30)}
-            onSelect={row => openDrilldown(String(row.title), { title: String(row.title) })} />
+            onSelect={row => openDrilldown(i18n.value('title', row.title), { title: String(row.title) })} />
         </Card>
       )}
 
       {/* ── Companies ──────────────────────────────────────────────────────── */}
       {data.companies.length > 0 && (
-        <Card title="🏢 Top Hiring Companies" exportUrls={exportUrls('company')}>
-          <HBar data={data.companies} x="count" y="company" color="#4ecdc4"
+        <Card title={`🏢 ${i18n.t('card.companies')}`} exportUrls={exportUrls('company')}>
+          <HBar data={data.companies} x="count" y="company" dimension="company" color="#4ecdc4"
             height={Math.max(240, data.companies.length * 32)}
             onSelect={row => openDrilldown(String(row.company), { company: String(row.company) })} />
         </Card>
@@ -1137,27 +1176,27 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
         return (
           <div className={`grid grid-cols-1 ${cols} gap-5`}>
             {data.experience.length > 0 && (
-              <Card title="📅 Experience Required" exportUrls={exportUrls('experience')}>
+              <Card title={`📅 ${i18n.t('card.experience')}`} exportUrls={exportUrls('experience')}>
                 {/* HBar gives long labels like "Minimum 10 years" their own row instead of
                     pile-up-and-rotate on the X-axis the way VBar did. Sort + display
                     happens inside HBar (it reverses for top-largest-at-top). */}
                 <HBar
                   data={[...data.experience].sort((a, b) => b.count - a.count)}
-                  x="count" y="experience" color="#ff8e53"
+                  x="count" y="experience" dimension="experience" color="#ff8e53"
                   height={Math.max(240, data.experience.length * 28)}
-                  onSelect={row => openDrilldown(String(row.experience), { experience: String(row.experience) })} />
+                  onSelect={row => openDrilldown(i18n.value('experience', row.experience), { experience: String(row.experience) })} />
               </Card>
             )}
             {data.company_size.length > 0 && (
-              <Card title="🏭 Company Size" exportUrls={exportUrls('company_size')}>
-                <Donut data={data.company_size} name="size" value="count"
-                  onSelect={row => openDrilldown(String(row.size), { company_size: String(row.size) })} />
+              <Card title={`🏭 ${i18n.t('card.companySize')}`} exportUrls={exportUrls('company_size')}>
+                <Donut data={data.company_size} name="size" value="count" dimension="companySize"
+                  onSelect={row => openDrilldown(i18n.value('companySize', row.size), { company_size: String(row.size) })} />
               </Card>
             )}
             {hasGender && (
-              <Card title="⚧ Gender Preference" subtitle="Most postings do not specify; this is the split among those that do." exportUrls={exportUrls('gender')}>
-                <Donut data={data.gender!} name="preference" value="count"
-                  onSelect={row => openDrilldown(String(row.preference), { gender: String(row.preference) })} />
+              <Card title={`⚧ ${i18n.t('card.gender')}`} subtitle={i18n.t('card.genderSubtitle')} exportUrls={exportUrls('gender')}>
+                <Donut data={data.gender!} name="preference" value="count" dimension="gender"
+                  onSelect={row => openDrilldown(i18n.value('gender', row.preference), { gender: String(row.preference) })} />
               </Card>
             )}
           </div>
@@ -1167,16 +1206,16 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {/* ── Language + Location ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {data.languages.length > 0 && (
-          <Card title="🗣 Language Requirements" exportUrls={exportUrls('language')}>
-            <HBar data={data.languages} x="count" y="language"
+          <Card title={`🗣 ${i18n.t('card.languages')}`} exportUrls={exportUrls('language')}>
+            <HBar data={data.languages} x="count" y="language" dimension="language"
               height={Math.max(260, data.languages.length * 42)}
-              onSelect={row => openDrilldown(String(row.language), { language: String(row.language) })} />
+              onSelect={row => openDrilldown(i18n.value('language', row.language), { language: String(row.language) })} />
           </Card>
         )}
         {data.locations.length > 0 && (
-          <Card title="📍 Top Locations" exportUrls={exportUrls('location')}>
-            <Donut data={data.locations} name="city" value="count"
-              onSelect={row => openDrilldown(String(row.city), { location: String(row.city) })} />
+          <Card title={`📍 ${i18n.t('card.locations')}`} exportUrls={exportUrls('location')}>
+            <Donut data={data.locations} name="city" value="count" dimension="location"
+              onSelect={row => openDrilldown(i18n.value('location', row.city), { location: String(row.city) })} />
           </Card>
         )}
       </div>
@@ -1196,13 +1235,13 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
           <>
             {hasBilingual && (
               <Card
-                title="🌐 Bilingual Posting Coverage"
-                subtitle="Share of postings present on the English portal, Arabic portal, or both."
+                title={`🌐 ${i18n.t('card.bilingual')}`}
+                subtitle={i18n.t('card.bilingualSubtitle')}
                 exportUrls={exportUrls('bilingual')}>
                 <BilingualBars
                   data={data.bilingual!}
                   onSelect={row => openDrilldown(
-                    `${row.country} · ${row.segment === 'both' ? 'Bilingual' : row.segment === 'en_only' ? 'English only' : 'Arabic only'}`,
+                    `${i18n.value('country', row.country)} · ${i18n.value('bilingual', row.segment)}`,
                     { country: row.country, bilingual: row.segment },
                   )}
                 />
@@ -1212,14 +1251,14 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
             <div className={`grid grid-cols-1 ${hasRemote && hasNat ? 'md:grid-cols-2' : ''} gap-5`}>
               {hasRemote && (
                 <Card
-                  title="🏠 Remote / Hybrid Work"
-                  subtitle="% of postings mentioning remote, hybrid, or work-from-home."
+                  title={`🏠 ${i18n.t('card.remote')}`}
+                  subtitle={i18n.t('card.remoteSubtitle')}
                   exportUrls={exportUrls('remote')}>
                   <CountryPctBars
                     data={data.remote!}
                     accent="#00c9a7"
                     onSelect={row => openDrilldown(
-                      `Remote postings · ${row.country}`,
+                      i18n.t('chart.remoteTitle', { country: i18n.value('country', row.country) }),
                       { country: row.country, remote: 'remote' },
                     )}
                   />
@@ -1227,14 +1266,14 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
               )}
               {hasNat && (
                 <Card
-                  title="🪪 Nationalization Signals"
-                  subtitle="% of postings mentioning Saudization / Emiratization / Qatarization."
+                  title={`🪪 ${i18n.t('card.nationalization')}`}
+                  subtitle={i18n.t('card.nationalizationSubtitle')}
                   exportUrls={exportUrls('nationalization')}>
                   <CountryPctBars
                     data={data.nationalization!}
                     accent="#ffd93d"
                     onSelect={row => openDrilldown(
-                      `Nationalization · ${row.country}`,
+                      i18n.t('chart.nationalizationTitle', { country: i18n.value('country', row.country) }),
                       { country: row.country, nationalization: 'mentioned' },
                     )}
                   />
@@ -1248,8 +1287,8 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       {/* ── Most-frequent Arabic terms (from Original_Page_Content) ──────── */}
       {data.arabic_terms && data.arabic_terms.length > 0 && (
         <Card
-          title="🔤 Most Frequent Arabic Terms"
-          subtitle="Top terms extracted from Arabic posting content. Click a term to browse matching postings."
+          title={`🔤 ${i18n.t('card.arabicTerms')}`}
+          subtitle={i18n.t('card.arabicTermsSubtitle')}
           exportUrls={exportUrls('arabic_term')}>
           <ArabicTermsBars
             data={data.arabic_terms}
@@ -1260,58 +1299,63 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
 
       {/* ── Country comparison (only visible on "All" tab) ─────────────────── */}
       {activeCountry === 'All' && data.country_comparison.length > 1 && (
-        <Card title="🌍 Volume by Country" subtitle="Share of total postings across selected datasets" exportUrls={exportUrls('country')}>
-          <Donut data={data.country_comparison} name="country" value="count"
-            onSelect={row => openDrilldown(String(row.country), { country: String(row.country) })} />
+        <Card title={`🌍 ${i18n.t('card.countryVolume')}`} subtitle={i18n.t('card.countryVolumeSubtitle')} exportUrls={exportUrls('country')}>
+          <Donut data={data.country_comparison} name="country" value="count" dimension="country"
+            onSelect={row => openDrilldown(i18n.value('country', row.country), { country: String(row.country) })} />
         </Card>
       )}
 
       {/* ── Trends ─────────────────────────────────────────────────────────── */}
       {data.trends && (
         <Card
-          title="📈 Market Trends"
-          subtitle={`${data.trends.t1} → ${data.trends.t2} · ${data.trends.n1.toLocaleString()} → ${data.trends.n2.toLocaleString()} postings`}>
+          title={`📈 ${i18n.t('card.trends')}`}
+          subtitle={i18n.t('card.trendsSubtitle', {
+            from: i18n.value('timeline', data.trends.t1),
+            to: i18n.value('timeline', data.trends.t2),
+            fromCount: i18n.number(data.trends.n1),
+            toCount: i18n.number(data.trends.n2),
+          })}>
           <div className="flex items-center gap-3 mb-4">
             <span className={`text-2xl font-bold nums ${data.trends.overall_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {data.trends.overall_pct > 0 ? '+' : ''}{data.trends.overall_pct}%
+              {data.trends.overall_pct > 0 ? '+' : ''}{i18n.percent(data.trends.overall_pct)}
             </span>
-            <span className="text-sm" style={{ color: 'var(--muted)' }}>overall change</span>
+            <span className="text-sm" style={{ color: 'var(--muted)' }}>{i18n.t('trend.overall')}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <div className="text-xs font-bold text-green-400 mb-3 flex items-center gap-2">
-                ▲ Growing Sectors
+                ▲ {i18n.t('trend.growing')}
               </div>
               {data.trends.growing.length === 0
-                ? <div className="text-xs" style={{ color: 'var(--muted)' }}>None in current selection</div>
+                ? <div className="text-xs" style={{ color: 'var(--muted)' }}>{i18n.t('trend.none')}</div>
                 : data.trends.growing.map(r => (
                 <div key={r.sector} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>{r.sector}</div>
+                    <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>{i18n.value('sector', r.sector)}</div>
                     <div className="text-xs nums" style={{ color: 'var(--muted)' }}>
-                      {r.count_t1.toLocaleString()} → {r.count_t2.toLocaleString()}
+                      {i18n.number(r.count_t1)} → {i18n.number(r.count_t2)}
                     </div>
                   </div>
                   <span className="text-xs font-bold nums text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full shrink-0">
-                    +{r.pct_change}%
+                    +{i18n.percent(r.pct_change)}
                   </span>
                 </div>
               ))}
             </div>
             <div>
-              <div className="text-xs font-bold text-red-400 mb-3">▼ Declining Sectors</div>
+              <div className="text-xs font-bold text-red-400 mb-3">▼ {i18n.t('trend.declining')}</div>
               {data.trends.declining.length === 0
-                ? <div className="text-xs" style={{ color: 'var(--muted)' }}>None in current selection</div>
+                ? <div className="text-xs" style={{ color: 'var(--muted)' }}>{i18n.t('trend.none')}</div>
                 : data.trends.declining.map(r => (
                 <div key={r.sector} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>{r.sector}</div>
+                    <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>{i18n.value('sector', r.sector)}</div>
                     <div className="text-xs nums" style={{ color: 'var(--muted)' }}>
-                      {r.count_t1.toLocaleString()} → {r.count_t2.toLocaleString()}
+                      {i18n.number(r.count_t1)} → {i18n.number(r.count_t2)}
                     </div>
                   </div>
                   <span className="text-xs font-bold nums text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full shrink-0">
-                    {r.pct_change}%
+                    {i18n.percent(r.pct_change)}
                   </span>
                 </div>
               ))}
@@ -1331,9 +1375,14 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
           activeSector   !== 'All' ? activeSector   : null,
         ].filter(Boolean) as string[];
         const count = activeFilters.length;
+        const localizedFilters = activeFilters.map(filter =>
+          allCountries.includes(filter) ? i18n.value('country', filter)
+            : allTimelines.includes(filter) ? i18n.value('timeline', filter)
+              : i18n.value('sector', filter),
+        );
         const label = count > 0
-          ? `Back to filters — ${count} active: ${activeFilters.join(', ')}`
-          : 'Back to filters';
+          ? i18n.t('fab.backActive', { count: i18n.number(count), filters: localizedFilters.join(', ') })
+          : i18n.t('fab.back');
         return (
           <button
             onClick={scrollToTop}

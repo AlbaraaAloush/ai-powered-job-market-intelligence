@@ -90,7 +90,6 @@ const dictionaries: Record<Lang, Dict> = {
 
       footerTagline:
         "AI-grounded labor-market intelligence for Qatar and the wider Gulf.",
-      footerContactTitle: "Contact",
       footerProductTitle: "Product",
       footerCompanyTitle: "About",
       footerLinkDashboard: "Dashboard",
@@ -98,9 +97,6 @@ const dictionaries: Record<Lang, Dict> = {
       footerLinkFeatures: "Features",
       footerLinkTeam: "Team",
       footerLinkFaq: "FAQ",
-      footerLocation: "Doha, Qatar",
-      footerEmail: "hello@mihna.qa",
-      footerPhone: "+974. 445. 47781",
       footerRights: "© 2026 Mihna. All rights reserved.",
       footerInstitution: "A QCRI labor-market research project.",
     },
@@ -195,7 +191,6 @@ const dictionaries: Record<Lang, Dict> = {
         "نسب الإفصاح في الإعلانات الخليجيّة منخفضة. تُشير مِهنَة بوضوح إلى استنتاجات الراتب منخفضة الثقة بدل تنعيمها. نُريك الفجوة بدل اختلاق رقم نظيف.",
 
       footerTagline: "ذكاء اصطناعي لقراءة سوق العمل في قطر والخليج.",
-      footerContactTitle: "تواصل",
       footerProductTitle: "المنتج",
       footerCompanyTitle: "عنّا",
       footerLinkDashboard: "لوحة التحكم",
@@ -203,9 +198,6 @@ const dictionaries: Record<Lang, Dict> = {
       footerLinkFeatures: "الإمكانات",
       footerLinkTeam: "الفريق",
       footerLinkFaq: "الأسئلة",
-      footerLocation: "الدوحة، قطر",
-      footerEmail: "hello@mihna.qa",
-      footerPhone: "+974. 445. 47781",
       footerRights: "© 2026 مِهنَة. جميع الحقوق محفوظة.",
       footerInstitution: "مشروع بحثي ضمن معهد قطر لبحوث الحوسبة.",
     },

@@ -9,7 +9,7 @@ import { DataSpecimen } from './DataSpecimen';
 const SPRING = { type: 'spring' as const, duration: 0.7, bounce: 0 };
 
 const CYCLING_EN = ['trends', 'skills', 'salaries', 'workforce demand', 'sectors', 'qualifications'];
-const CYCLING_AR = ['الاتجاهات', 'المهارات', 'الرواتب', 'الطلب على القوى العاملة', 'القطاعات', 'المؤهّلات'];
+const CYCLING_AR = ['تغيّرات السوق', 'المهارات', 'الرواتب', 'الطلب على القوى العاملة', 'القطاعات', 'المؤهّلات'];
 
 export function Hero() {
   const { t, lang } = useLanguage();

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, use, useEffect, useState, ReactNode } from 'react';
+import { createContext, use, useCallback, useEffect, useMemo, useState, ReactNode } from 'react';
 
 type Theme = 'dark' | 'light';
 
@@ -13,6 +13,18 @@ const ThemeContext = createContext<ThemeContextValue>({
   theme: 'light',
   toggleTheme: () => {},
 });
+
+const faviconByTheme: Record<Theme, string> = {
+  light: '/brand/mihna-favicon-light.png',
+  dark: '/brand/mihna-favicon-dark.png',
+};
+
+function applyDocumentTheme(theme: Theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+
+  const favicon = document.getElementById('mihna-favicon') as HTMLLinkElement | null;
+  if (favicon) favicon.href = faviconByTheme[theme];
+}
 
 /* SSR + initial client render both produce theme='light' so hydration
    matches. After mount, the effect synchronizes React state with the
@@ -28,24 +40,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const initial: Theme = stored === 'dark' || stored === 'light' ? stored : 'light';
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
-    document.documentElement.setAttribute('data-theme', initial);
+    applyDocumentTheme(initial);
   }, []);
 
-  function toggleTheme() {
-    setTheme(prev => {
-      const next: Theme = prev === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      try {
-        window.localStorage.setItem('theme', next);
-      } catch {
-        /* private browsing / quota — fail silently. */
-      }
-      return next;
-    });
-  }
+  const toggleTheme = useCallback(() => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    applyDocumentTheme(next);
+    try {
+      window.localStorage.setItem('theme', next);
+    } catch {
+      /* Private browsing or quota failures do not block theme changes. */
+    }
+    setTheme(next);
+  }, [theme]);
+
+  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

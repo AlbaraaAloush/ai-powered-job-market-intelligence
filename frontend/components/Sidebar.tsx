@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { DumpInfo } from '@/lib/types';
 import { ModelOption } from '@/lib/api';
-import { useLanguage } from '@/lib/i18n';
+import { useDashboardI18n } from '@/lib/dashboard-i18n';
 
 interface Props {
   dumps: DumpInfo[];
@@ -24,7 +24,7 @@ export default function Sidebar({
   showModel = true,
   onToggle, onSelectAll, onClearAll, onModelChange,
 }: Props) {
-  const { dir } = useLanguage();
+  const i18n = useDashboardI18n();
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   // Group dumps by country once; sort countries alphabetically, dumps by timeline.
@@ -60,29 +60,29 @@ export default function Sidebar({
   }
 
   return (
-    <aside id="data-scope" className="app-sidebar" dir={dir} aria-labelledby="data-scope-title">
+    <aside id="data-scope" className="app-sidebar" dir={i18n.dir} aria-labelledby="data-scope-title">
 
       {/* Header */}
       <div className="app-sidebar__heading">
         <div>
-          <div id="data-scope-title" className="app-sidebar__title">Data scope</div>
-          <div className="app-sidebar__subtitle">GCC job postings</div>
+          <div id="data-scope-title" className="app-sidebar__title">{i18n.t('sidebar.title')}</div>
+          <div className="app-sidebar__subtitle">{i18n.t('sidebar.subtitle')}</div>
         </div>
       </div>
 
       {/* Dataset selector */}
       <div>
-        <div className="app-sidebar__section-title">Datasets</div>
+        <div className="app-sidebar__section-title">{i18n.t('sidebar.datasets')}</div>
         <div className="flex gap-2 mb-3">
           <button type="button" onClick={onSelectAll}
             className="flex-1 text-xs min-h-8 rounded-md border pill-hover focus-ring"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-            All
+            {i18n.t('sidebar.selectAll')}
           </button>
           <button type="button" onClick={onClearAll}
             className="flex-1 text-xs min-h-8 rounded-md border pill-hover focus-ring"
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-            None
+            {i18n.t('sidebar.clearAll')}
           </button>
         </div>
 
@@ -97,10 +97,10 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={() => toggleCountry(cDumps)}
-                title={allSelected ? `Deselect all ${country} datasets` : `Select all ${country} datasets`}
+                title={i18n.t(allSelected ? 'sidebar.deselectCountry' : 'sidebar.selectCountry', { country: i18n.value('country', country) })}
                 className="w-full flex items-center justify-between gap-2 px-2 py-1 mb-1 rounded-md pill-hover focus-ring"
                 style={{ color: 'var(--text)' }}>
-                <span className="text-xs font-semibold">{country}</span>
+                <span className="text-xs font-semibold">{i18n.value('country', country)}</span>
                 <span
                   className="text-[10px] nums px-1.5 py-0.5 rounded-md"
                   style={{
@@ -154,10 +154,10 @@ export default function Sidebar({
                       </span>
                       <span className="text-xs leading-tight flex-1 min-w-0">
                         <span className="block truncate" style={{ color: isSel ? 'var(--text)' : 'var(--muted)' }}>
-                          {d._timeline}
+                          {i18n.value('timeline', d._timeline)}
                         </span>
                         <span className="block text-[10px] nums" style={{ color: 'var(--muted)' }}>
-                          {d.count.toLocaleString()} jobs
+                          {i18n.t('sidebar.jobCount', { count: i18n.number(d.count) })}
                         </span>
                       </span>
                     </button>
@@ -169,15 +169,17 @@ export default function Sidebar({
         })}
 
         <div className="app-sidebar__summary nums">
-          {totalJobs > 0 ? `${totalJobs.toLocaleString()} jobs selected` : 'No datasets selected'}
+          {totalJobs > 0
+            ? i18n.t('sidebar.selectedCount', { count: i18n.number(totalJobs) })
+            : i18n.t('sidebar.noSelection')}
         </div>
       </div>
 
       {/* Model selector */}
       {showModel && <div className="app-sidebar__model">
-        <div className="app-sidebar__section-title">Model</div>
+        <div className="app-sidebar__section-title">{i18n.t('sidebar.model')}</div>
         {models.length === 0 && (
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>Loading models…</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>{i18n.t('sidebar.loadingModels')}</div>
         )}
         {models.map(({ label, value }) => (
           <label key={value} className="flex items-start gap-2 mb-2 cursor-pointer">
@@ -197,8 +199,8 @@ export default function Sidebar({
       </div>}
 
       <div className="app-sidebar__source">
-        Source: Bayt.com<br />
-        {timelines.join(', ')}
+        {i18n.t('sidebar.source')}<br />
+        {timelines.map(timeline => i18n.value('timeline', timeline)).join(', ')}
       </div>
     </aside>
   );

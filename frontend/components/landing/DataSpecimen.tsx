@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { animate, motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useLanguage } from '@/lib/i18n';
 
@@ -17,72 +17,69 @@ type Fact = {
   source: string;
 };
 
-/* Sample readings — illustrative, not authoritative. The component
-   self-marks each row with a "Sample" citation so it never poses as
-   live ground truth (per the project's data-honesty rule). */
+/* Readings calculated from the three English-portal files dated
+   12 May 2026 in RAG/data. All four use the same 20,535-row snapshot. */
 const FACTS_EN: Fact[] = [
   {
-    value: 47,
-    suffix: '%',
-    region: 'QA · DOHA',
-    body: 'of senior engineering postings list Arabic proficiency as a hard requirement.',
-    source: 'Sample · May 2026 snapshot',
+    value: 20535,
+    suffix: '',
+    region: 'GCC SNAPSHOT',
+    body: 'job-posting rows across Qatar, the UAE, and Saudi Arabia.',
+    source: 'Bayt.com dataset · 12 May 2026 · n=20,535',
   },
   {
-    value: 62,
-    suffix: '%',
-    region: 'SA · RIYADH',
-    body: 'of finance roles in Riyadh require both Arabic and English — the highest mix in the Gulf.',
-    source: 'Sample · April 2026 snapshot',
+    value: 2413,
+    suffix: '',
+    region: 'EMPLOYERS',
+    body: 'distinct company names represented in the three-country snapshot.',
+    source: 'Bayt.com dataset · 12 May 2026 · n=20,535',
   },
   {
-    value: 3.2,
-    suffix: '×',
+    value: 8.7,
+    suffix: '%',
     decimals: 1,
-    region: 'QA · DOHA',
-    body: 'median salary multiplier between graduate and senior software roles in Doha.',
-    source: 'Sample · 2026 cumulative',
+    region: 'SALARY DISCLOSURE',
+    body: 'of postings disclose a salary range: 1,781 rows in the snapshot.',
+    source: 'Bayt.com dataset · 12 May 2026 · n=20,535',
   },
   {
-    value: 14,
-    suffix: 'pp',
-    prefix: '+',
-    region: 'AE · ABU DHABI',
-    body: 'shift toward AI and ML in must-have skills since Q1, the largest jump in the schema.',
-    source: 'Sample · Q1 → Q2 2026',
+    value: 2644,
+    suffix: '',
+    region: 'TOP CATEGORY',
+    body: 'Engineering postings, the largest category at 12.9% of the snapshot.',
+    source: 'Bayt.com dataset · 12 May 2026 · n=20,535',
   },
 ];
 
 const FACTS_AR: Fact[] = [
   {
-    value: 47,
-    suffix: '٪',
-    region: 'الدوحة',
-    body: 'من إعلانات الأدوار الهندسية الكبرى تشترط إتقان العربية.',
-    source: 'عيّنة · مايو 2026',
+    value: 20535,
+    suffix: '',
+    region: 'لقطة خليجية',
+    body: 'صفاً لإعلانات وظائف في قطر والإمارات والسعودية.',
+    source: 'العدد ٢٠٬٥٣٥ · ١٢ مايو ٢٠٢٦ · مجموعة بيانات بيت.كوم',
   },
   {
-    value: 62,
-    suffix: '٪',
-    region: 'الرياض',
-    body: 'من إعلانات التمويل في الرياض تتطلب العربية والإنجليزية معاً — أعلى مزيج في الخليج.',
-    source: 'عيّنة · أبريل 2026',
+    value: 2413,
+    suffix: '',
+    region: 'جهات التوظيف',
+    body: 'اسماً مميزاً لشركات ممثلة في لقطة الدول الثلاث.',
+    source: 'العدد ٢٠٬٥٣٥ · ١٢ مايو ٢٠٢٦ · مجموعة بيانات بيت.كوم',
   },
   {
-    value: 3.2,
-    suffix: '×',
+    value: 8.7,
+    suffix: '٪',
     decimals: 1,
-    region: 'الدوحة',
-    body: 'مُضاعِف متوسط فئة الراتب من الخريج إلى الكبير في الأدوار البرمجيّة.',
-    source: 'عيّنة · 2026 تراكمي',
+    region: 'الإفصاح عن الراتب',
+    body: 'من الإعلانات تفصح عن نطاق للراتب، أي ١٬٧٨١ صفاً في اللقطة.',
+    source: 'العدد ٢٠٬٥٣٥ · ١٢ مايو ٢٠٢٦ · مجموعة بيانات بيت.كوم',
   },
   {
-    value: 14,
-    suffix: 'نقطة',
-    prefix: '+',
-    region: 'أبوظبي',
-    body: 'تحوّل نحو الذكاء الاصطناعي ضمن المهارات اللازمة منذ الربع الأول، الأكبر في البنية.',
-    source: 'عيّنة · Q1 → Q2 2026',
+    value: 2644,
+    suffix: '',
+    region: 'أكبر فئة',
+    body: 'إعلاناً هندسياً، وهي أكبر فئة بنسبة ١٢٫٩٪ من اللقطة.',
+    source: 'العدد ٢٠٬٥٣٥ · ١٢ مايو ٢٠٢٦ · مجموعة بيانات بيت.كوم',
   },
 ];
 
@@ -91,6 +88,7 @@ const FACTS_AR: Fact[] = [
 export const DataSpecimen = memo(function DataSpecimen() {
   const { lang, dir } = useLanguage();
   const facts = lang === 'ar' ? FACTS_AR : FACTS_EN;
+  const locale = lang === 'ar' ? 'ar-QA' : 'en-US';
   const reduce = useReducedMotion();
   const [i, setI] = useState(0);
 
@@ -106,7 +104,7 @@ export const DataSpecimen = memo(function DataSpecimen() {
 
   return (
     <figure
-      aria-label="A reading from the data"
+      aria-label={lang === 'ar' ? 'قراءة من البيانات' : 'A reading from the data'}
       className="relative flex h-full min-h-[440px] flex-col justify-between"
     >
       {/* Top meta — index marker stays put; region cycles inside the
@@ -156,6 +154,7 @@ export const DataSpecimen = memo(function DataSpecimen() {
               suffix={fact.suffix}
               prefix={fact.prefix}
               decimals={fact.decimals}
+              locale={locale}
             />
           </div>
 
@@ -209,31 +208,40 @@ function CountedNumber({
   suffix,
   prefix,
   decimals = 0,
+  locale,
 }: {
   value: number;
   suffix: string;
   prefix?: string;
   decimals?: number;
+  locale: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   const reduce = useReducedMotion();
+  const formatter = useMemo(
+    () => new Intl.NumberFormat(locale, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }),
+    [decimals, locale],
+  );
 
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
     if (reduce) {
-      node.textContent = value.toFixed(decimals);
+      node.textContent = formatter.format(value);
       return;
     }
     const controls = animate(0, value, {
       duration: 1.6,
       ease: [0.2, 0, 0, 1],
       onUpdate: (v) => {
-        node.textContent = v.toFixed(decimals);
+        node.textContent = formatter.format(v);
       },
     });
     return () => controls.stop();
-  }, [value, decimals, reduce]);
+  }, [value, reduce, formatter]);
 
   return (
     <motion.div
@@ -260,14 +268,16 @@ function CountedNumber({
       >
         0
       </span>
-      <span
-        style={{
-          fontSize: 'clamp(40px, 5.5vw, 72px)',
-          marginLeft: 6,
-        }}
-      >
-        {suffix}
-      </span>
+      {suffix ? (
+        <span
+          style={{
+            fontSize: 'clamp(40px, 5.5vw, 72px)',
+            marginLeft: 6,
+          }}
+        >
+          {suffix}
+        </span>
+      ) : null}
     </motion.div>
   );
 }

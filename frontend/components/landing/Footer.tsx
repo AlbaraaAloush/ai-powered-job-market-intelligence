@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n';
 import { Reveal } from './Reveal';
 
-/* Drenched footer — committed primary carrying color across the
-   surface. Editorial three-column layout with a giant wordmark on top
+/* Drenched footer with the primary color carried across the
+   surface. A compact navigation grid follows the giant wordmark,
    and a hairline-separated lower band for legal + institution copy. */
 export function Footer() {
   const { t, dir } = useLanguage();
@@ -38,42 +38,9 @@ export function Footer() {
           }}
         />
 
-        <div className="grid grid-cols-12 gap-6 py-12 md:gap-10 md:py-16">
-          {/* Contact */}
-          <Reveal className="col-span-12 md:col-span-6">
-            <FooterTitle>{t('mihna.footerContactTitle')}</FooterTitle>
-            <ul className="mt-5 space-y-3 text-[15px]">
-              <li>
-                <a
-                  href={`mailto:${t('mihna.footerEmail')}`}
-                  className="m-link nums"
-                  style={{ color: 'var(--m-on-primary)' }}
-                >
-                  {t('mihna.footerEmail')}
-                </a>
-              </li>
-              <li>
-                <a
-                  href={`tel:${t('mihna.footerPhone').replace(/\s/g, '')}`}
-                  className="m-link nums"
-                  style={{ color: 'var(--m-on-primary)' }}
-                  dir="ltr"
-                >
-                  {t('mihna.footerPhone')}
-                </a>
-              </li>
-              <li
-                style={{
-                  color: 'color-mix(in oklch, var(--m-on-primary) 78%, transparent)',
-                }}
-              >
-                {t('mihna.footerLocation')}
-              </li>
-            </ul>
-          </Reveal>
-
+        <div className="grid grid-cols-2 gap-6 py-12 md:gap-10 md:py-16">
           {/* Product links */}
-          <Reveal delay={0.06} className="col-span-6 md:col-span-3">
+          <Reveal className="col-span-1">
             <FooterTitle>{t('mihna.footerProductTitle')}</FooterTitle>
             <ul className="mt-5 space-y-3 text-[15px]">
               <li>
@@ -95,7 +62,7 @@ export function Footer() {
           </Reveal>
 
           {/* About */}
-          <Reveal delay={0.12} className="col-span-6 md:col-span-3">
+          <Reveal delay={0.06} className="col-span-1">
             <FooterTitle>{t('mihna.footerCompanyTitle')}</FooterTitle>
             <ul className="mt-5 space-y-3 text-[15px]">
               <li>
