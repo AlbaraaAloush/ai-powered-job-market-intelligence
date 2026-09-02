@@ -50,8 +50,13 @@ class ValidationResult:
 def validate_answer(answer: str, context: str, valid_source_ids: set[str]) -> ValidationResult:
     citations = _CITATION_RE.findall(answer or "")
     invalid = sorted({c for c in citations if c not in valid_source_ids})
-    context_numbers = {n.replace(",", "") for n in _NUMBER_RE.findall(context or "")}
-    answer_numbers = {n.replace(",", "") for n in _NUMBER_RE.findall(answer or "")}
+    # Citation identifiers are provenance metadata, not numerical claims. UUID
+    # segments such as ``5590`` previously caused otherwise grounded answers to
+    # be rejected when that segment did not also appear in the prose context.
+    context_claims = _CITATION_RE.sub("", context or "")
+    answer_claims = _CITATION_RE.sub("", answer or "")
+    context_numbers = {n.replace(",", "") for n in _NUMBER_RE.findall(context_claims)}
+    answer_numbers = {n.replace(",", "") for n in _NUMBER_RE.findall(answer_claims)}
     unsupported = sorted(answer_numbers - context_numbers)
     evidence_answer = bool((answer or "").strip()) and "insufficient evidence" not in (answer or "").lower()
     reason = ""

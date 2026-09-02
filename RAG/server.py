@@ -1301,6 +1301,7 @@ async def chat(request: Request, body: ChatRequest):
         None,
         lambda: build_fast_answer(
             _state["df"], body.question, history=history, dump_ids=dump_ids,
+            explicit_filters=explicit_filters,
         ),
     )
 

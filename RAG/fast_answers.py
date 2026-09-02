@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from analytics import _parse_skills, _sort_timelines_chrono
+from filter_registry import FILTER_REGISTRY
 
 
 COUNTRY_ALIASES = {
@@ -49,6 +50,17 @@ _TECH_ROLE_RE = re.compile(
     r"\b(?:software|developer|programmer|technology|information technology|it |data|"
     r"cyber|cloud|network|systems? engineer|computer science|ai|machine learning)\b",
     re.IGNORECASE,
+)
+
+_EMPLOYMENT_TYPE_QUERIES = (
+    ("Full-Time", re.compile(r"\bfull[ -]?time\b|دوام كامل", re.IGNORECASE)),
+    ("Part-Time", re.compile(r"\bpart[ -]?time\b|دوام جزئي", re.IGNORECASE)),
+    ("Contract", re.compile(r"\bcontract(?:ual)?\b|تعاقد|بعقد|عقود", re.IGNORECASE)),
+    ("Internship", re.compile(r"\bintern(?:ship)?s?\b|تدريب|متدرب", re.IGNORECASE)),
+    ("Freelance", re.compile(r"\bfreelanc(?:e|er|ing)\b|عمل حر|مستقل", re.IGNORECASE)),
+    ("Temporary", re.compile(r"\btemporar(?:y|ily)\b|مؤقت", re.IGNORECASE)),
+    ("Remote", re.compile(r"\bremote\b|عن بعد", re.IGNORECASE)),
+    ("Volunteer", re.compile(r"\bvolunteer(?:s|ing)?\b|تطوع", re.IGNORECASE)),
 )
 
 _ARABIC_RE = re.compile(r"[\u0600-\u06ff]")
@@ -155,10 +167,24 @@ def _skills_by_posting(df: pd.DataFrame) -> Counter:
     return counts
 
 
-def _scope_base(df: pd.DataFrame, dump_ids: list[str] | None) -> pd.DataFrame:
+def _scope_base(
+    df: pd.DataFrame,
+    dump_ids: list[str] | None,
+    explicit_filters: dict[str, str] | None = None,
+) -> pd.DataFrame:
     scoped = df
     if dump_ids and "_dump_id" in scoped.columns:
         scoped = scoped[scoped["_dump_id"].isin(dump_ids)]
+    for key, raw_value in (explicit_filters or {}).items():
+        field = FILTER_REGISTRY.get(key)
+        if field is None or field.column not in scoped.columns:
+            continue
+        value = field.normalize(raw_value) if field.normalize else str(raw_value).strip()
+        if value is None or not str(value).strip():
+            continue
+        scoped = scoped[
+            scoped[field.column].fillna("").astype(str).str.casefold().eq(str(value).casefold())
+        ]
     # Read-only views are sufficient. Copying every wide text column (including
     # descriptions) added seconds to otherwise tiny calculations.
     return scoped
@@ -238,6 +264,12 @@ def _role_scope(df: pd.DataFrame, question: str, history: list[dict] | None) -> 
         return df[titles.str.contains(_DATA_ROLE_RE, na=False)], "وظائف البيانات" if arabic else "data roles"
     if re.search(r"\b(ai|artificial intelligence|machine learning)\b|الذكاء الاصطناعي|تعلم الآلة|التعلم الآلي", text, re.I):
         return df[titles.str.contains(_AI_ROLE_RE, na=False)], "وظائف الذكاء الاصطناعي وتعلم الآلة" if arabic else "AI and machine-learning roles"
+    if re.search(r"\bengineering jobs?\b|\bengineer(?:ing|s)? roles?\b|وظائف هندس|مهندس", text, re.I):
+        sector = df.get("_sector_norm", pd.Series("", index=df.index)).fillna("").astype(str)
+        mask = titles.str.contains(r"\bengineer(?:ing)?\b", case=False, regex=True, na=False) | sector.str.contains(
+            r"engineering", case=False, regex=True, na=False,
+        )
+        return df[mask], "الوظائف الهندسية" if arabic else "engineering roles"
     if re.search(r"\b(technology|tech|computer science|software)\b|تقنية|تكنولوجيا|علوم الحاسوب|برمجيات", text, re.I):
         sector = df.get("_sector_norm", pd.Series("", index=df.index)).fillna("").astype(str)
         mask = titles.str.contains(_TECH_ROLE_RE, na=False) | sector.str.contains(r"technology|engineering", case=False, na=False)
@@ -283,6 +315,154 @@ def _result(answer: str, intent: str, scope: str, scoped: pd.DataFrame, evidence
 def _top_skill_rows(df: pd.DataFrame, limit: int = 8) -> list[tuple[str, int, float]]:
     total = max(len(df), 1)
     return [(skill, count, round(count * 100 / total, 1)) for skill, count in _skills_by_posting(df).most_common(limit)]
+
+
+def _requested_employment_type(question: str) -> str | None:
+    for label, pattern in _EMPLOYMENT_TYPE_QUERIES:
+        if pattern.search(question):
+            return label
+    return None
+
+
+def _requested_group_dimension(question: str) -> tuple[str, str, str, str] | None:
+    if re.search(r"\bsectors?\b|\bindustr(?:y|ies)\b|قطاع|قطاعات|صناعة|صناعات", question, re.IGNORECASE):
+        return "_sector_norm", "Sector", "القطاع", "sector"
+    if re.search(r"\bcountr(?:y|ies)\b|\bnations?\b|دولة|دول|بلد|بلدان", question, re.IGNORECASE):
+        return "_country", "Country", "الدولة", "country"
+    if re.search(r"\bsources?\b|\bby platform\b|\bbayt\b|\blinkedin\b|مصدر|منصة", question, re.IGNORECASE):
+        return "_source", "Source", "المصدر", "source"
+    return None
+
+
+def _employment_by_group_answer(
+    scoped: pd.DataFrame,
+    employment_type: str,
+    scope: str,
+    arabic: bool,
+    group: tuple[str, str, str, str],
+) -> dict | None:
+    group_col, group_label, arabic_group_label, intent_suffix = group
+    group_plural = "Countries" if group_label == "Country" else f"{group_label}s"
+    if group_col == "_sector_norm" and group_col not in scoped.columns and "category" in scoped.columns:
+        group_col = "category"
+    if group_col not in scoped.columns or "_employment_norm" not in scoped.columns:
+        return None
+
+    usable = scoped[
+        scoped[group_col].notna()
+        & scoped[group_col].astype(str).str.strip().ne("")
+    ]
+    if usable.empty:
+        return None
+
+    employment = usable["_employment_norm"].fillna("").astype(str)
+    matching = usable[employment.str.casefold().eq(employment_type.casefold())]
+    totals = usable.groupby(group_col).size()
+    matching_counts = matching.groupby(group_col).size()
+    minimum_group_size = 20 if len(usable) >= 1_000 else 2
+    eligible_groups = totals[totals >= minimum_group_size].index
+    matching_counts = matching_counts[matching_counts.index.isin(eligible_groups)]
+    rows = [
+        (str(group_value), int(count), int(totals[group_value]), count * 100 / totals[group_value])
+        for group_value, count in matching_counts.items()
+    ]
+    rows.sort(key=lambda row: (-row[3], -row[1], row[0]))
+
+    if arabic:
+        lines = [
+            f"## اعتماد الفئات على وظائف {employment_type}",
+            "",
+            "يُرتب الجدول الفئات حسب حصة هذا النوع من التوظيف داخل كل فئة، وليس حسب الحجم الخام وحده.",
+            f"تُعرض فقط الفئات التي تحتوي على {minimum_group_size:,} إعلانًا على الأقل لتجنب النسب المضللة من العينات الصغيرة.",
+            "",
+            f"| {arabic_group_label} | إعلانات النوع | جميع إعلانات الفئة | الحصة |",
+            "|---|---:|---:|---:|",
+        ]
+    else:
+        lines = [
+            f"## {group_plural} relying most on {employment_type.lower()} employment",
+            "",
+            f"{group_plural} are ranked by this employment type's share within each {group_label.lower()}, not by raw posting volume alone.",
+            f"Only groups with at least {minimum_group_size:,} postings are shown to avoid misleading rates from tiny samples.",
+            "",
+            f"| {group_label} | Matching postings | All {group_label.lower()} postings | Share |",
+            "|---|---:|---:|---:|",
+        ]
+    lines += [f"| {group_value} | {count:,} | {total:,} | {share:.1f}% |" for group_value, count, total, share in rows[:10]]
+    if not rows:
+        lines += [
+            "",
+            (
+                "لا توجد فئات تحقق الحد الأدنى لحجم العينة في النطاق المحدد."
+                if arabic
+                else "No groups meet the minimum base size in the selected scope."
+            ),
+        ]
+    lines += ["", f"*النطاق: {scope}*" if arabic else f"*Scope: {scope}*"]
+    return _result(
+        "\n".join(lines),
+        f"employment-by-{intent_suffix}",
+        scope,
+        matching,
+        _job_evidence(matching),
+    )
+
+
+def _source_comparison_answer(
+    scoped: pd.DataFrame,
+    question: str,
+    history: list[dict] | None,
+    scope: str,
+    arabic: bool,
+) -> dict | None:
+    if "_source" not in scoped.columns:
+        return None
+    roles, role_label = _role_scope(scoped, question, history)
+    sources = roles["_source"].dropna().replace("", pd.NA).value_counts()
+    if sources.empty:
+        return None
+
+    if arabic:
+        lines = [
+            f"## مقارنة المصادر في {role_label}",
+            "",
+            f"تعتمد المقارنة على **{len(roles):,} إعلانًا مطابقًا**.",
+            "",
+            "| المصدر | الإعلانات | الحصة | نوع التوظيف الأبرز | المستوى الوظيفي الأبرز |",
+            "|---|---:|---:|---|---|",
+        ]
+    else:
+        lines = [
+            f"## Bayt versus LinkedIn for {role_label}",
+            "",
+            f"The comparison uses **{len(roles):,} matching postings**.",
+            "",
+            "| Source | Postings | Share | Leading employment type | Leading career level |",
+            "|---|---:|---:|---|---|",
+        ]
+
+    for source, count in sources.items():
+        source_rows = roles[roles["_source"] == source]
+        employment = source_rows.get("_employment_norm", pd.Series(dtype=str)).dropna().replace("", pd.NA).value_counts()
+        career = source_rows.get("_career_norm", pd.Series(dtype=str)).dropna().replace("", pd.NA).value_counts()
+        leading_employment = str(employment.index[0]) if not employment.empty else "Not available"
+        leading_career = str(career.index[0]) if not career.empty else "Not available"
+        lines.append(
+            f"| {source} | {int(count):,} | {count * 100 / max(len(roles), 1):.1f}% | "
+            f"{leading_employment} | {leading_career} |"
+        )
+
+    caveat = _source_caveat(roles, arabic)
+    if caveat:
+        lines += ["", caveat]
+    lines += ["", f"*النطاق: {scope}*" if arabic else f"*Scope: {scope}*"]
+    return _result(
+        "\n".join(lines),
+        "source-comparison",
+        scope,
+        roles,
+        _job_evidence(roles),
+    )
 
 
 def _skills_answer(scoped: pd.DataFrame, question: str, history: list[dict] | None, scope: str) -> dict:
@@ -374,6 +554,7 @@ def build_fast_answer(
     question: str,
     history: list[dict] | None = None,
     dump_ids: list[str] | None = None,
+    explicit_filters: dict[str, str] | None = None,
 ) -> dict | None:
     """Return a deterministic response, or ``None`` when full RAG is needed."""
     clean = re.sub(r"^[-*]\s*", "", str(question or "").strip())
@@ -394,7 +575,7 @@ def build_fast_answer(
                   "I’m **Mihna**, a GCC labour-market research assistant. I analyse the selected job-posting datasets to answer questions about hiring volume, skills, employers, salaries, sectors, and changes over time. For the clearest result, name a role, country, or period—or ask me to compare them.")
         return _result(answer, "help", "", df.iloc[:0])
 
-    base = _scope_base(df, dump_ids)
+    base = _scope_base(df, dump_ids, explicit_filters)
     scoped, countries, timelines, scope = _scope_question(base, clean, history)
     scope = _localized_scope(countries, timelines, len(scoped), arabic)
 
@@ -473,6 +654,41 @@ def build_fast_answer(
                   if arabic else
                   ["", "Posting volume shows activity in this dataset; it is not an employer-quality ranking.", "", f"*Scope: {scope}*"])
         return _result("\n".join(lines), "company-ranking", scope, roles, _job_evidence(roles))
+
+    requested_employment_type = _requested_employment_type(clean)
+    requested_group = _requested_group_dimension(clean)
+    source_group_requested = requested_group is not None and requested_group[3] == "source"
+    if (
+        re.search(r"\b(?:compare|comparison|versus|vs\.?|differ(?:ence|ent)?|vary|variation)\b|قارن|مقارنة|اختلاف", q)
+        and (("bayt" in q and "linkedin" in q) or source_group_requested)
+    ):
+        answer = _source_comparison_answer(scoped, clean, history, scope, arabic)
+        if answer is not None:
+            return answer
+
+    if requested_employment_type and requested_group:
+        answer = _employment_by_group_answer(
+            scoped,
+            requested_employment_type,
+            scope,
+            arabic,
+            requested_group,
+        )
+        if answer is not None:
+            return answer
+
+    # Do not let one-dimensional category summaries swallow questions asking
+    # how that category varies across another dimension. Unsupported cross-tabs
+    # continue through the full RAG pipeline instead.
+    if requested_group and re.search(
+        r"\b(?:career level|seniority|entry.level|junior|senior roles|"
+        r"languages?|arabic|salary|salaries|pay|compensation|education|degree|bachelor|master|phd|"
+        r"gender|women|woman|female|men|man|male|nationali[sz]ation|citizens?)\b|"
+        r"متطلبات اللغة|اللغة العربية|راتب|رواتب|تعليم|درجة|بكالوريوس|ماجستير|دكتوراه|"
+        r"جنس|نساء|امرأة|رجال|رجل|توطين|مواطن|المستوى الوظيفي|الأقدمية|مبتدئ|وظائف عليا",
+        q,
+    ):
+        return None
 
     categorical = [
         (r"employment type|full.time|part.time|contract|نوع التوظيف|أنواع التوظيف|دوام كامل|دوام جزئي|عقد", "_employment_norm", "Employment types", "أنواع التوظيف"),
