@@ -15,10 +15,16 @@ Examples:
   bayt_jobs_Saudi_Arabia_AR_12_May_2026.xlsx → country=Saudi Arabia, AR signals
 """
 
+import hashlib
+import json
 import re
 import pandas as pd
 from pathlib import Path
 from config import DATA_DIR, COLUMN_ALIASES
+
+RUNTIME_PARQUET = "runtime_compact.parquet"
+RUNTIME_MANIFEST = "runtime_compact.json"
+RUNTIME_SCHEMA_VERSION = 1
 
 # ---------------------------------------------------------------------------
 # Month helpers
@@ -320,12 +326,73 @@ def _build_rename_map(actual_columns: list[str]) -> dict[str, str]:
     return rename
 
 
-def _load_file(path: Path) -> pd.DataFrame:
+def _load_file(path: Path, compact: bool = False) -> pd.DataFrame:
+    usecols = None
+    if compact:
+        excluded = {alias.lower() for alias in COLUMN_ALIASES.get("original_content", [])}
+        excluded.add("llm_error")
+        usecols = lambda column: str(column).strip().lower() not in excluded
     if path.suffix.lower() == ".xlsx":
-        return pd.read_excel(path)
+        return pd.read_excel(path, usecols=usecols)
     elif path.suffix.lower() == ".csv":
-        return pd.read_csv(path)
+        return pd.read_csv(path, usecols=usecols)
     raise ValueError(f"Unsupported file type: {path.suffix}")
+
+
+def _load_ar_signals_compact(path: Path, country: str) -> pd.DataFrame:
+    """Stream an Arabic workbook into small derived signals, not raw page text."""
+    if path.suffix.lower() != ".xlsx":
+        raw = _load_file(path)
+        rename_map = _build_rename_map(list(raw.columns))
+        frame = raw.rename(columns=rename_map)
+        ar_col = next(
+            (column for column in frame.columns
+             if any(key in str(column).lower() for key in ("original", "ar_content", "page_content"))),
+            None,
+        )
+        if ar_col is None or "job_id" not in frame.columns:
+            return pd.DataFrame()
+        return pd.DataFrame({
+            "job_id": frame["job_id"],
+            "_lang_signal": frame[ar_col].map(_lang_signal),
+            "_national_signal": frame[ar_col].map(lambda value: _national_signal(value, country)),
+            "_remote_signal": frame[ar_col].map(_remote_signal),
+            "_has_ar_content": frame[ar_col].notna(),
+        }).drop_duplicates("job_id")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        headers = [str(value or "") for value in next(rows)]
+        rename_map = _build_rename_map(headers)
+        job_header = next((header for header, canonical in rename_map.items() if canonical == "job_id"), None)
+        ar_header = next(
+            (header for header in headers
+             if any(key in header.lower() for key in ("original", "ar_content", "page_content"))),
+            None,
+        )
+        if job_header is None or ar_header is None:
+            return pd.DataFrame()
+
+        job_index = headers.index(job_header)
+        ar_index = headers.index(ar_header)
+        records: list[dict] = []
+        for row in rows:
+            job_id = row[job_index] if job_index < len(row) else None
+            content = row[ar_index] if ar_index < len(row) else None
+            records.append({
+                "job_id": job_id,
+                "_lang_signal": _lang_signal(content),
+                "_national_signal": _national_signal(content, country),
+                "_remote_signal": _remote_signal(content),
+                "_has_ar_content": content is not None and bool(str(content).strip()),
+            })
+        return pd.DataFrame.from_records(records).drop_duplicates("job_id")
+    finally:
+        workbook.close()
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +427,74 @@ def sort_timelines(timelines: list[str]) -> list[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def load_all(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
+def _source_files(data_dir: Path) -> list[Path]:
+    return sorted(
+        f for f in list(data_dir.glob("*.xlsx")) + list(data_dir.glob("*.csv"))
+        if not f.name.startswith("~$")
+    )
+
+
+def _source_fingerprint(files: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(path.name.encode("utf-8"))
+        digest.update(str(path.stat().st_size).encode("ascii"))
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()[:20]
+
+
+def _load_runtime_snapshot(data_dir: Path, files: list[Path]) -> tuple[pd.DataFrame, list[str]] | None:
+    parquet_path = data_dir / RUNTIME_PARQUET
+    manifest_path = data_dir / RUNTIME_MANIFEST
+    if not parquet_path.exists() or not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+            return None
+        if manifest.get("source_fingerprint") != _source_fingerprint(files):
+            return None
+        frame = pd.read_parquet(parquet_path)
+        if len(frame) != int(manifest.get("record_count", -1)):
+            return None
+        return frame, [str(value) for value in manifest.get("timelines", [])]
+    except Exception:
+        return None
+
+
+def build_runtime_snapshot(data_dir: Path = DATA_DIR) -> tuple[Path, Path, int]:
+    """Process source workbooks once into a compact, version-checked artifact."""
+    files = _source_files(data_dir)
+    frame, timelines = load_all(data_dir, compact=True, use_runtime=False)
+    # Excel frequently mixes numeric Bayt IDs with string LinkedIn IDs in one
+    # logical column. Arrow requires a stable physical type, so normalize only
+    # object columns while preserving missing values as nulls.
+    for column in frame.columns:
+        if pd.api.types.is_object_dtype(frame[column].dtype) or pd.api.types.is_string_dtype(frame[column].dtype):
+            frame[column] = frame[column].map(
+                lambda value: None if pd.isna(value) else str(value)
+            )
+    parquet_path = data_dir / RUNTIME_PARQUET
+    manifest_path = data_dir / RUNTIME_MANIFEST
+    frame.to_parquet(parquet_path, index=False, compression="zstd")
+    manifest = {
+        "schema_version": RUNTIME_SCHEMA_VERSION,
+        "source_fingerprint": _source_fingerprint(files),
+        "record_count": len(frame),
+        "timelines": timelines,
+        "sources": [path.name for path in files],
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return parquet_path, manifest_path, len(frame)
+
+
+def load_all(
+    data_dir: Path = DATA_DIR,
+    compact: bool = False,
+    use_runtime: bool = True,
+) -> tuple[pd.DataFrame, list[str]]:
     """
     Scan data_dir for all Excel/CSV files.
 
@@ -368,18 +502,24 @@ def load_all(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
     - AR files  → bilingual signal extraction only (language, nationalization, remote)
                   merged into EN rows by job_id where available
 
+    `compact=True` keeps derived Arabic signals but drops large raw page-text
+    columns before frames accumulate. Use it for memory-constrained API hosts;
+    offline index builders keep the default full-text dataframe.
+
     Returns (merged_df, sorted_timelines_list).
     The DataFrame contains all canonical columns plus:
       _timeline, _country, _dump_id, _dump_label, _source_file
       _employment_norm, _career_norm, _sector_norm
       _lang_signal, _national_signal, _remote_signal  (from AR portal)
     """
-    all_files = sorted(
-        f for f in list(data_dir.glob("*.xlsx")) + list(data_dir.glob("*.csv"))
-        if not f.name.startswith("~$")   # skip Excel lock files
-    )
+    all_files = _source_files(data_dir)
     if not all_files:
         raise FileNotFoundError(f"No data files found in {data_dir}")
+
+    if compact and use_runtime:
+        runtime = _load_runtime_snapshot(data_dir, all_files)
+        if runtime is not None:
+            return runtime
 
     # Separate EN and AR files
     en_entries: list[tuple[Path, dict]] = []
@@ -398,7 +538,7 @@ def load_all(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
     frames: list[pd.DataFrame] = []
 
     for f, info in en_entries:
-        raw = _load_file(f)
+        raw = _load_file(f, compact=compact)
         rename_map = _build_rename_map(list(raw.columns))
         df = raw.rename(columns=rename_map)
 
@@ -435,18 +575,45 @@ def load_all(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
         ar_path = ar_lookup.get(info["dump_id"])
         if ar_path:
             try:
-                ar_raw    = _load_file(ar_path)
-                ar_rename = _build_rename_map(list(ar_raw.columns))
-                ar_df     = ar_raw.rename(columns=ar_rename)
+                if compact:
+                    ar_sub = _load_ar_signals_compact(ar_path, info["country"])
+                    if not ar_sub.empty and "job_id" in df.columns:
+                        def _job_key(value):
+                            if pd.isna(value):
+                                return None
+                            text = str(value).strip()
+                            return text[:-2] if text.endswith(".0") else text
+
+                        df["_compact_job_key"] = df["job_id"].map(_job_key)
+                        ar_sub["_compact_job_key"] = ar_sub["job_id"].map(_job_key)
+                        df = (
+                            df.merge(
+                                ar_sub.drop(columns="job_id"),
+                                on="_compact_job_key",
+                                how="left",
+                            )
+                            .drop(columns="_compact_job_key")
+                        )
+                        df["_lang_signal"] = df["_lang_signal"].fillna("unspecified")
+                        for signal in ("_national_signal", "_remote_signal", "_has_ar_content"):
+                            df[signal] = df[signal].fillna(False).astype(bool)
+                    else:
+                        _add_empty_ar_cols(df)
+                        df["_has_ar_content"] = False
+                    ar_df = None
+                else:
+                    ar_raw    = _load_file(ar_path)
+                    ar_rename = _build_rename_map(list(ar_raw.columns))
+                    ar_df     = ar_raw.rename(columns=ar_rename)
 
                 # Identify the Arabic content column
                 ar_col = next(
                     (c for c in ar_df.columns
                      if any(k in c.lower() for k in ["original", "ar_content", "page_content"])),
                     None,
-                )
+                ) if ar_df is not None else None
 
-                if ar_col and "job_id" in ar_df.columns and "job_id" in df.columns:
+                if not compact and ar_col and "job_id" in ar_df.columns and "job_id" in df.columns:
                     ar_sub = (ar_df[["job_id", ar_col]]
                               .rename(columns={ar_col: "_ar_content"})
                               .drop_duplicates("job_id"))
@@ -457,10 +624,12 @@ def load_all(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
                         axis=1,
                     )
                     df["_remote_signal"]   = df["_ar_content"].apply(_remote_signal)
-                else:
+                elif not compact:
                     _add_empty_ar_cols(df)
             except Exception:
                 _add_empty_ar_cols(df)
+                if compact:
+                    df["_has_ar_content"] = False
         else:
             _add_empty_ar_cols(df)
 
@@ -473,6 +642,14 @@ def load_all(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, list[str]]:
                     df[remote_col].astype(str).str.strip().str.lower()
                     .isin(["true", "1", "yes", "remote"])
                 )
+
+        if compact:
+            if "_ar_content" in df.columns:
+                df["_has_ar_content"] = df["_ar_content"].notna()
+            df = df.drop(
+                columns=["_ar_content", "original_content", "llm_error"],
+                errors="ignore",
+            )
 
         frames.append(df)
 

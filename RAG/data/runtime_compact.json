@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "source_fingerprint": "10ef70f54097897556b3",
+  "record_count": 30795,
+  "timelines": [
+    "May 2026",
+    "Jun 2026"
+  ],
+  "sources": [
+    "bayt_jobs_Qatar_12_May_2026.xlsx",
+    "bayt_jobs_Qatar_AR_12_May_2026.xlsx",
+    "bayt_jobs_Saudi_Arabia_12_May_2026.xlsx",
+    "bayt_jobs_Saudi_Arabia_AR_12_May_2026.xlsx",
+    "bayt_jobs_UAE_12_May_2026.xlsx",
+    "bayt_jobs_UAE_AR_12_May_2026.xlsx",
+    "linkedin_jobs_Qatar_1_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+    "linkedin_Jobs_Qatar_7_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+    "linkedin_jobs_Saudi_Arabia_1_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+    "linkedin_Jobs_Saudi_Arabia_7_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+    "linkedin_Jobs_UAE_1_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+    "linkedin_jobs_UAE_7_June_2026_LLM_Enriched_22_Jun_2026.xlsx"
+  ]
+}

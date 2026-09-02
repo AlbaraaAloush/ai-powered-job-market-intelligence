@@ -61,7 +61,8 @@ def test_bm25_results_respects_top_k(postings_df):
 def test_bm25_results_shape_matches_vector_search(postings_df):
     results = bm25_results("software engineer", postings_df, top_k=3)
     for r in results:
-        assert set(r.keys()) == {"document", "metadata", "distance"}
+        assert {"document", "metadata", "distance", "source_id", "scores"}.issubset(r.keys())
+        assert "bm25" in r["scores"]
         assert isinstance(r["document"], str) and r["document"]
         assert isinstance(r["metadata"], dict)
 

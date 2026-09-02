@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+_LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
 
 
 def make_client(model: str):
@@ -31,8 +31,8 @@ def make_client(model: str):
     if model.startswith("fanar/"):
         bare = model[len("fanar/"):]
         key  = os.getenv("FANAR_API_KEY", "")
-        return OpenAI(api_key=key, base_url=FANAR_BASE_URL, timeout=_LLM_TIMEOUT), bare
-    return OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""), timeout=_LLM_TIMEOUT), model
+        return OpenAI(api_key=key, base_url=FANAR_BASE_URL, timeout=_LLM_TIMEOUT, max_retries=0), bare
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""), timeout=_LLM_TIMEOUT, max_retries=0), model
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -40,10 +40,10 @@ FANAR_API_KEY  = os.getenv("FANAR_API_KEY",  "")
 FANAR_BASE_URL = "https://api.fanar.qa/v1"
 
 # Default model — overridden per-session from the UI model selector
-CHAT_MODEL = "fanar/Fanar-C-2-27B"
+CHAT_MODEL = "fanar/Fanar-C-1-8.7B"
 
 # Internal model used for SQL generation and query decomposition.
-INTERNAL_MODEL = "fanar/Fanar-C-2-27B"
+INTERNAL_MODEL = "fanar/Fanar-C-1-8.7B"
 # Multilingual model (EN + AR) so Arabic postings embed meaningfully.
 # Same 384-dim output as all-MiniLM-L6-v2, so Qdrant vector size is unchanged.
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"

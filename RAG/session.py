@@ -8,6 +8,7 @@ Each session tracks chat history for one user tab/browser.
 import time
 import uuid
 from threading import Lock
+from storage import ApplicationDatabase
 
 SESSION_TTL  = 2 * 60 * 60   # 2 hours of inactivity → session expired
 MAX_MESSAGES = 20             # keep last N messages per session to bound memory
@@ -76,3 +77,58 @@ class SessionStore:
     def stats(self) -> dict:
         with self._lock:
             return {"active_sessions": len(self._sessions)}
+
+
+class PersistentSessionStore:
+    """PostgreSQL/SQLite session implementation with the SessionStore contract."""
+    def __init__(self, database: ApplicationDatabase):
+        self.database = database
+
+    def create(self) -> str:
+        sid, now = str(uuid.uuid4()), time.time()
+        with self.database.connect() as db:
+            db.execute(self.database.sql("INSERT INTO chat_sessions(id, last_seen) VALUES (?, ?)"), (sid, now))
+        return sid
+
+    def get_history(self, sid: str) -> list[dict]:
+        with self.database.connect() as db:
+            exists = db.execute(self.database.sql("SELECT id FROM chat_sessions WHERE id = ?"), (sid,)).fetchone()
+            if not exists:
+                return []
+            db.execute(self.database.sql("UPDATE chat_sessions SET last_seen = ? WHERE id = ?"), (time.time(), sid))
+            rows = db.execute(
+                self.database.sql("SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY id"), (sid,)
+            ).fetchall()
+        return [{"role": row[0], "content": row[1]} for row in rows]
+
+    def append(self, sid: str, role: str, content: str):
+        now = time.time()
+        with self.database.connect() as db:
+            db.execute(
+                self.database.sql("INSERT INTO chat_sessions(id, last_seen) VALUES (?, ?) "
+                                  "ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen"),
+                (sid, now),
+            )
+            db.execute(
+                self.database.sql("INSERT INTO chat_messages(session_id, role, content, created_at) VALUES (?, ?, ?, ?)"),
+                (sid, role, content, now),
+            )
+            db.execute(self.database.sql(
+                "DELETE FROM chat_messages WHERE session_id = ? AND id NOT IN "
+                "(SELECT id FROM chat_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?)"
+            ), (sid, sid, MAX_MESSAGES))
+
+    def clear(self, sid: str):
+        with self.database.connect() as db:
+            db.execute(self.database.sql("DELETE FROM chat_messages WHERE session_id = ?"), (sid,))
+
+    def cleanup(self):
+        cutoff = time.time() - SESSION_TTL
+        with self.database.connect() as db:
+            cursor = db.execute(self.database.sql("DELETE FROM chat_sessions WHERE last_seen < ?"), (cutoff,))
+            return max(cursor.rowcount, 0)
+
+    def stats(self) -> dict:
+        with self.database.connect() as db:
+            count = db.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0]
+        return {"active_sessions": int(count), "backend": self.database.backend}

@@ -24,6 +24,9 @@ credentials later requires zero changes outside this file and .env.
 
 import os
 import time
+import re
+import uuid
+from dataclasses import dataclass
 from contextlib import contextmanager
 from threading import Lock
 
@@ -237,6 +240,135 @@ def _langfuse_client():
         logger.exception("Langfuse client construction failed")
         _langfuse_instance = None
     return _langfuse_instance
+
+
+_SECRET_KEY_RE = re.compile(r"(api.?key|secret|token|authorization|password|dsn)", re.I)
+
+
+def sanitize_trace_value(value, *, max_string: int = 12000, depth: int = 0):
+    """Keep useful exact RAG evidence while excluding credentials and huge payloads."""
+    if depth > 8:
+        return "[MAX_DEPTH]"
+    if isinstance(value, dict):
+        return {
+            str(k): ("[REDACTED]" if _SECRET_KEY_RE.search(str(k)) else
+                     sanitize_trace_value(v, max_string=max_string, depth=depth + 1))
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_trace_value(v, max_string=max_string, depth=depth + 1) for v in value]
+    if isinstance(value, str):
+        value = re.sub(r"(?i)bearer\s+[a-z0-9._-]+", "Bearer [REDACTED]", value)
+        return value if len(value) <= max_string else value[:max_string] + "…[TRUNCATED]"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return sanitize_trace_value(str(value), max_string=max_string, depth=depth + 1)
+
+
+@dataclass
+class RAGTrace:
+    observation: object | None = None
+    trace_id: str = ""
+
+    def stage(self, name: str, *, kind: str = "span", input=None, metadata=None):
+        return _TraceStage(self, name, kind, input, metadata)
+
+    def update(self, *, output=None, metadata=None, level=None, status_message=None):
+        if self.observation is None:
+            return
+        try:
+            kwargs = {}
+            if output is not None: kwargs["output"] = sanitize_trace_value(output)
+            if metadata is not None: kwargs["metadata"] = sanitize_trace_value(metadata)
+            if level is not None: kwargs["level"] = level
+            if status_message is not None: kwargs["status_message"] = status_message
+            self.observation.update(**kwargs)
+        except Exception:
+            logger.debug("Langfuse trace update failed", exc_info=True)
+
+
+class _TraceStage:
+    def __init__(self, parent, name, kind, input, metadata):
+        self.parent, self.name, self.kind = parent, name, kind
+        self.input, self.metadata, self.observation = input, metadata, None
+
+    def __enter__(self):
+        if self.parent.observation is not None:
+            try:
+                self.observation = self.parent.observation.start_observation(
+                    name=self.name, as_type=self.kind,
+                    input=sanitize_trace_value(self.input),
+                    metadata=sanitize_trace_value(self.metadata or {}),
+                )
+            except Exception:
+                logger.debug("Langfuse child observation failed", exc_info=True)
+        return self
+
+    def update(self, **kwargs):
+        if self.observation is not None:
+            try:
+                self.observation.update(**sanitize_trace_value(kwargs))
+            except Exception:
+                logger.debug("Langfuse child update failed", exc_info=True)
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.observation is not None:
+            try:
+                if exc is not None:
+                    self.observation.update(level="ERROR", status_message=str(exc))
+                self.observation.end()
+            except Exception:
+                logger.debug("Langfuse child end failed", exc_info=True)
+
+
+@contextmanager
+def trace_rag_request(*, question: str, session_id: str, model: str, metadata: dict):
+    """Create one root chain that owns every stage of a single RAG request."""
+    lf, observation = _langfuse_client(), None
+    if lf is not None:
+        try:
+            observation = lf.start_observation(
+                name="rag.request", as_type="chain",
+                input={"query": sanitize_trace_value(question), "session_id": session_id},
+                metadata=sanitize_trace_value({**metadata, "model": model}),
+                version=str(metadata.get("application_version", "unknown")),
+            )
+        except Exception:
+            logger.debug("Langfuse root trace failed", exc_info=True)
+    # Feedback must remain linkable even when Langfuse is disabled or down.
+    # A local trace ID is therefore part of the API contract, not a side effect
+    # of having an observability vendor configured.
+    trace_id = getattr(observation, "trace_id", "") if observation else ""
+    trace = RAGTrace(observation, trace_id or uuid.uuid4().hex)
+    try:
+        yield trace
+    except Exception as exc:
+        trace.update(level="ERROR", status_message=str(exc))
+        raise
+    finally:
+        if observation is not None:
+            try:
+                observation.end()
+                lf.flush()
+            except Exception:
+                logger.debug("Langfuse root trace end failed", exc_info=True)
+
+
+def submit_feedback_score(trace_id: str, helpful: bool, reason: str = "", comment: str = "") -> bool:
+    lf = _langfuse_client()
+    if lf is None or not trace_id:
+        return False
+    try:
+        lf.create_score(
+            trace_id=trace_id, name="user-helpfulness", value=1.0 if helpful else 0.0,
+            data_type="BOOLEAN", comment=comment or reason or None,
+            metadata={"reason": reason},
+        )
+        lf.flush()
+        return True
+    except Exception:
+        logger.warning("Unable to send feedback to Langfuse", exc_info=True)
+        return False
 
 
 @contextmanager

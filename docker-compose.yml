@@ -8,11 +8,34 @@
 # Production stack (nginx, single origin, no direct ports): docker-compose.prod.yml
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gcc_jobs
+      POSTGRES_USER: gcc_jobs
+      POSTGRES_PASSWORD: local-development-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gcc_jobs -d gcc_jobs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
-    build: ./RAG
+    build:
+      context: ./RAG
+      args:
+        INSTALL_RAG_MODELS: ${INSTALL_RAG_MODELS:-true}
     env_file: ./RAG/.env
     environment:
       ALLOWED_ORIGINS: http://localhost:3000
+      DATABASE_URL: postgresql://gcc_jobs:local-development-only@postgres:5432/gcc_jobs
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -29,3 +52,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres_data:

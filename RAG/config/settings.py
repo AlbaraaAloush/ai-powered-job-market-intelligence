@@ -20,6 +20,22 @@ load_dotenv()
 ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development").strip().lower()
 IS_PRODUCTION: bool = ENVIRONMENT == "production"
 
+# The analytics dashboard is a complete product surface on its own and must
+# remain available when the optional semantic-search service is unavailable.
+# REQUIRE_RAG is useful for deployments where chat is contractually required:
+# it restores fail-fast validation for missing vector/LLM credentials.
+ENABLE_RAG: bool = os.getenv("ENABLE_RAG", "true").strip().lower() not in {"0", "false", "no", "off"}
+REQUIRE_RAG: bool = os.getenv("REQUIRE_RAG", "false").strip().lower() in {"1", "true", "yes", "on"}
+WARM_RERANKER_ON_STARTUP: bool = (
+    os.getenv("WARM_RERANKER_ON_STARTUP", "false").strip().lower() in {"1", "true", "yes", "on"}
+)
+WARM_EMBEDDING_ON_STARTUP: bool = (
+    os.getenv("WARM_EMBEDDING_ON_STARTUP", "true").strip().lower() in {"1", "true", "yes", "on"}
+)
+COMPACT_RUNTIME_DATA: bool = (
+    os.getenv("COMPACT_RUNTIME_DATA", "true").strip().lower() in {"1", "true", "yes", "on"}
+)
+
 # Bumped manually on release; surfaced on /health. Falls back to "dev" so a
 # missing env var never breaks startup.
 APP_VERSION: str = os.getenv("APP_VERSION", "0.1.0-dev")

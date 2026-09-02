@@ -22,6 +22,7 @@ to disable either outright.
 import os
 import re
 import time
+import hashlib
 
 import pandas as pd
 from rank_bm25 import BM25Okapi
@@ -32,8 +33,13 @@ from vector_store import _build_doc_text, _build_metadata
 
 logger = get_logger(__name__)
 
-ENABLE_HYBRID_RETRIEVAL = os.getenv("ENABLE_HYBRID_RETRIEVAL", "true").lower() != "false"
-ENABLE_RERANKER = os.getenv("ENABLE_RERANKER", "true").lower() != "false"
+# Vector retrieval is the production default. Rebuilding BM25 across ~31k
+# wide postings and running a CPU cross-encoder added 10–13 seconds per chat
+# request on the target laptop. Exact analytics are already deterministic, so
+# hybrid/reranking remains an explicit research option instead of user-facing
+# latency paid on every semantic question.
+ENABLE_HYBRID_RETRIEVAL = os.getenv("ENABLE_HYBRID_RETRIEVAL", "false").lower() == "true"
+ENABLE_RERANKER = os.getenv("ENABLE_RERANKER", "false").lower() == "true"
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 
 _RRF_K = 60
@@ -78,10 +84,17 @@ def bm25_results(query: str, df: pd.DataFrame, top_k: int) -> list[dict]:
     for i in order[: top_k * 3]:  # generous pool; fuse_results/rerank trim further
         if scores[i] <= 0:
             break
+        metadata = _build_metadata(rows[i][1])
+        source_id = str(metadata.get("source_id") or hashlib.sha256(
+            _build_doc_text(rows[i][1]).encode("utf-8", errors="ignore")
+        ).hexdigest()[:16])
+        metadata["source_id"] = source_id
         results.append({
             "document": texts[i],
-            "metadata": _build_metadata(rows[i][1]),
+            "metadata": metadata,
             "distance": 1.0,  # BM25 has no cosine distance; RRF ignores this field
+            "source_id": source_id,
+            "scores": {"bm25": float(scores[i])},
         })
         if len(results) >= top_k:
             break
@@ -120,9 +133,17 @@ def fuse_results(result_lists: list[list[dict]], top_k: int, k: int = _RRF_K) ->
             if not any(key):
                 continue  # no job_title/company/timeline at all — can't dedupe safely, skip
             scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
-            payload.setdefault(key, r)
+            if key not in payload:
+                payload[key] = {**r, "scores": dict(r.get("scores", {}))}
+            else:
+                payload[key].setdefault("scores", {}).update(r.get("scores", {}))
     ranked_keys = sorted(scores, key=lambda kk: scores[kk], reverse=True)
-    return [payload[kk] for kk in ranked_keys[:top_k]]
+    fused = []
+    for kk in ranked_keys[:top_k]:
+        item = payload[kk]
+        item.setdefault("scores", {})["fusion_rrf"] = float(scores[kk])
+        fused.append(item)
+    return fused
 
 
 # ---------------------------------------------------------------------------
@@ -200,4 +221,9 @@ def rerank_results(query: str, results: list[dict], top_k: int) -> list[dict]:
     record_metric("reranker_duration_ms", (time.perf_counter() - t0) * 1000)
 
     order = sorted(range(len(results)), key=lambda i: scores[i], reverse=True)
-    return [results[i] for i in order[:top_k]]
+    ranked = []
+    for i in order[:top_k]:
+        item = {**results[i], "scores": dict(results[i].get("scores", {}))}
+        item["scores"]["reranker"] = float(scores[i])
+        ranked.append(item)
+    return ranked

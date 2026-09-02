@@ -1,0 +1,2 @@
+# Optional local embedding and cross-encoder models for full semantic RAG.
+sentence-transformers>=3.0.0

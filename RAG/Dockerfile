@@ -3,10 +3,9 @@
 # Build from the RAG/ directory:  docker build -t gcc-jobs-api ./RAG
 #
 # Notes:
-#  - torch is installed from the CPU-only index first: sentence-transformers
-#    would otherwise pull the CUDA build (~2.5 GB) for a container with no GPU.
-#  - The embedding model is baked into the image so cold starts don't depend
-#    on a ~470 MB Hugging Face download at runtime (adds size, buys determinism).
+#  - INSTALL_RAG_MODELS=false builds a much smaller image for the dashboard and
+#    SQL/Pandas chat fallback. The full image installs CPU-only torch and bakes
+#    the embedding model for deterministic semantic-RAG cold starts.
 #  - Secrets are NOT baked — pass them at runtime via env_file/environment.
 
 FROM python:3.11-slim AS base
@@ -18,18 +17,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# CPU-only torch first (see note above), then the rest of the requirements.
-COPY requirements.txt .
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
- && pip install -r requirements.txt
+ARG INSTALL_RAG_MODELS=true
+
+COPY requirements-api.txt requirements-rag.txt ./
+RUN pip install -r requirements-api.txt \
+ && if [ "$INSTALL_RAG_MODELS" = "true" ]; then \
+      pip install torch --index-url https://download.pytorch.org/whl/cpu \
+      && pip install -r requirements-rag.txt; \
+    fi
 
 # Non-root user before model download so the cache lands in its home dir.
 RUN useradd --create-home appuser
 USER appuser
 
-# Bake the embedding model into the image layer.
-RUN python -c "from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
+# Bake the embedding model only in the full semantic-RAG image.
+RUN if [ "$INSTALL_RAG_MODELS" = "true" ]; then \
+      python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"; \
+    fi
 
 # App code last — changes here don't invalidate the heavy layers above.
 COPY --chown=appuser:appuser . .

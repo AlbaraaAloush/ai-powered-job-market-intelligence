@@ -42,7 +42,8 @@ HBKU/
     ├── sql_engine.py         # text-to-SQL over an in-memory SQLite copy
     ├── vector_store.py       # Qdrant Cloud REST wrapper (embed/search/payload)
     ├── rag_engine.py         # orchestrates decompose -> SQL -> pandas -> Qdrant -> LLM
-    ├── session.py            # in-memory chat session/history store
+    ├── session.py            # PostgreSQL sessions; in-memory fallback
+    ├── usage_store.py        # anonymous operational usage events
     ├── app.py                # legacy Streamlit UI — see §11, flagged for review
     ├── build_index.py        # CLI: (re)build the Qdrant index from data/
     ├── migrate_sector_payload.py       # one-off Qdrant payload backfill (Sprint 1)

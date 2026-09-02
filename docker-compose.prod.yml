@@ -8,12 +8,16 @@
 #   ENVIRONMENT=production        (enables fail-fast config validation)
 #   APP_VERSION=<release tag>
 #   ALLOWED_ORIGINS=<public origin, e.g. https://jobs.example.org>
+#   DATABASE_URL=<managed PostgreSQL URL with TLS enabled>
 # TLS: terminate at the platform LB, or add a 443 server block + certs in
 # nginx/nginx.conf (see its TODO) and publish 443 below.
 
 services:
   backend:
-    build: ./RAG
+    build:
+      context: ./RAG
+      args:
+        INSTALL_RAG_MODELS: ${INSTALL_RAG_MODELS:-true}
     env_file: ./RAG/.env
     expose:
       - "8000"

@@ -1,58 +1,49 @@
-import { DashboardData, DatasetsResponse, HealthResponse, RetrievalInfo } from './types';
+import {
+  DashboardData, DashboardDimension, DashboardScope, DatasetsResponse,
+  PostingPage, RetrievalInfo,
+} from './types';
+import {
+  downloadStaticExport, fetchStaticDashboard, fetchStaticDatasets,
+  fetchStaticPostings, preloadStaticDashboard,
+} from './static-dashboard';
 
-// `??` (not `||`) so an explicitly-empty NEXT_PUBLIC_API_URL means "same origin"
-// — the production nginx setup serves the API under the same host at /api/*,
-// so the Docker build passes NEXT_PUBLIC_API_URL="" to get relative URLs.
-// Unset (local dev without Docker) still falls back to the local backend.
-export const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-
+// An explicitly empty value means same-origin (the nginx production stack).
+// Only an undefined value falls back to the local development backend.
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 export async function fetchDatasets(): Promise<DatasetsResponse> {
-  const r = await fetch(`${API}/api/datasets`);
-  if (!r.ok) throw new Error('Failed to fetch datasets');
-  return r.json();
+  const datasets = await fetchStaticDatasets();
+  preloadStaticDashboard();
+  return datasets;
 }
 
-// One field per RAG/filter_registry.py entry, mirrored in server.py's
-// get_dashboard() query params — plus country/timeline, which stay on the
-// dump_ids selection mechanism rather than the explicit_filters registry.
 export interface DashboardParams {
   dumps: string[];
   country?: string;
-  timeline?: string;
   sector?: string;
-  employment_type?: string;
-  career_level?: string;
-  company?: string;
-  experience?: string;
-  salary_bucket?: string;
+  timeline?: string;
 }
 
-function dashboardQuery(params: DashboardParams): URLSearchParams {
-  const q = new URLSearchParams();
-  if (params.dumps.length) q.set('dumps', params.dumps.join(','));
-  const named: (keyof DashboardParams)[] = [
-    'country', 'timeline', 'sector', 'employment_type', 'career_level', 'company', 'experience', 'salary_bucket',
-  ];
-  for (const key of named) {
-    const value = params[key];
-    if (typeof value === 'string' && value && value !== 'All') q.set(key, value);
-  }
-  return q;
+export async function fetchDashboard(params: DashboardParams, signal?: AbortSignal): Promise<DashboardData> {
+  return fetchStaticDashboard(params, signal);
 }
 
-export async function fetchDashboard(params: DashboardParams): Promise<DashboardData> {
-  const r = await fetch(`${API}/api/dashboard?${dashboardQuery(params)}`);
-  if (!r.ok) throw new Error('Failed to fetch dashboard data');
-  return r.json();
+export async function fetchDashboardPostings(
+  dumps: string[],
+  scope: DashboardScope,
+  page: number,
+  pageSize = 20,
+): Promise<PostingPage> {
+  return fetchStaticPostings(dumps, scope, page, pageSize);
 }
 
-// Backs each chart's download-as-Excel button. A plain navigable URL (not a
-// fetch+blob) so the browser handles the Content-Disposition: attachment
-// response as a normal download, no CORS/blob plumbing needed.
-export function dashboardExportUrl(chart: string, params: DashboardParams): string {
-  const q = dashboardQuery(params);
-  q.set('chart', chart);
-  return `${API}/api/dashboard/export?${q}`;
+export function downloadDashboardExport(
+  kind: 'postings' | 'aggregation',
+  dumps: string[],
+  scope: DashboardScope,
+  format: 'csv' | 'json',
+  dimension?: DashboardDimension,
+) {
+  return downloadStaticExport(kind, dumps, scope, format, dimension);
 }
 
 export interface ModelOption {
@@ -66,12 +57,6 @@ export async function fetchModels(): Promise<{ models: ModelOption[]; default: s
   return r.json();
 }
 
-export async function fetchHealth(): Promise<HealthResponse> {
-  const r = await fetch(`${API}/health`);
-  if (!r.ok) throw new Error('Failed to fetch health');
-  return r.json();
-}
-
 export async function createSession(): Promise<string> {
   const r = await fetch(`${API}/api/session`, { method: 'POST' });
   const data = await r.json();
@@ -80,6 +65,17 @@ export async function createSession(): Promise<string> {
 
 export async function clearSession(sessionId: string): Promise<void> {
   await fetch(`${API}/api/session/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function submitFeedback(payload: {
+  trace_id: string; session_id: string; helpful: boolean; reason?: string;
+  comment?: string; question?: string; answer?: string;
+}): Promise<void> {
+  const r = await fetch(`${API}/api/feedback`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`Feedback error: ${r.status}`);
 }
 
 // Typed stream events from the server
@@ -94,12 +90,11 @@ export async function* streamChat(
   model: string,
   dumpIds: string[],
   signal?: AbortSignal,
-  filters?: Record<string, string>,
 ): AsyncGenerator<StreamEvent> {
   const r = await fetch(`${API}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, session_id: sessionId, model, dump_ids: dumpIds, filters: filters ?? {} }),
+    body: JSON.stringify({ question, session_id: sessionId, model, dump_ids: dumpIds }),
     signal,
   });
 

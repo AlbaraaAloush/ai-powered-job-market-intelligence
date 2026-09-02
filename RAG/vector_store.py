@@ -14,6 +14,7 @@ MANIFEST_VERSION: bump ONLY when document text format changes — forces full re
 import hashlib
 import json
 import os
+import threading
 import time
 import uuid
 import warnings
@@ -22,7 +23,6 @@ from pathlib import Path
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
 from config import CHROMA_DIR, DESCRIPTION_TRUNCATE, EMBEDDING_MODEL, TOP_K, get_logger
@@ -102,11 +102,31 @@ class _QdrantREST:
 
     def upsert(self, name: str, points: list[dict]):
         """points: list of {id, vector, payload}"""
-        r = self._s.put(
-            f"{self._base}/collections/{name}/points",
-            json={"points": points},
-        )
-        r.raise_for_status()
+        # A batch upsert is idempotent because every point has a deterministic
+        # UUID. Retry transient connection resets/timeouts so a long indexing
+        # run is not discarded because of one interrupted HTTPS connection.
+        last_error = None
+        for attempt in range(1, 6):
+            try:
+                r = self._s.put(
+                    f"{self._base}/collections/{name}/points",
+                    json={"points": points},
+                    timeout=120,
+                )
+                r.raise_for_status()
+                return
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_error = exc
+                if attempt == 5:
+                    break
+                delay = 2 ** (attempt - 1)
+                logger.warning(
+                    "Qdrant upsert interrupted (attempt %d/5); retrying in %ds",
+                    attempt,
+                    delay,
+                )
+                time.sleep(delay)
+        raise last_error
 
     def search(
         self,
@@ -144,6 +164,15 @@ class _QdrantREST:
         r = self._s.post(f"{self._base}/collections/{name}/points/payload", json=body, params=params)
         r.raise_for_status()
         return r.json()["result"]
+
+    def delete_points(self, name: str, point_ids: list[str], wait: bool = True):
+        if not point_ids:
+            return
+        r = self._s.post(
+            f"{self._base}/collections/{name}/points/delete",
+            json={"points": point_ids}, params={"wait": str(wait).lower()}, timeout=120,
+        )
+        r.raise_for_status()
 
 
 # ---------------------------------------------------------------------------
@@ -296,13 +325,36 @@ class VectorStore:
             )
 
         self._client = _QdrantREST(url, api_key)
-        self._model  = SentenceTransformer(EMBEDDING_MODEL)
-        # First real .encode() call after load pays a one-time CPU thread-pool
-        # / kernel warmup tax (observed ~15-20s on Windows) — pay it here, once,
-        # at boot rather than on a random user's first chat message.
-        self._model.encode("warm up", show_progress_bar=False)
+        # Validate the inexpensive external dependency before importing torch
+        # and loading hundreds of MB of model weights. A paused/deleted Qdrant
+        # cluster should fail quickly and must not inflate dashboard memory.
         self._ensure_collection()
+
+        # The dashboard and deterministic chat must be usable immediately.
+        # Loading torch + SentenceTransformer can monopolize the Windows
+        # process for ~30 seconds, even from a background thread, so defer it
+        # until a genuinely semantic request or indexing job needs embeddings.
+        self._model = None
+        self._model_lock = threading.Lock()
         self._count: int | None = None
+
+    def _ensure_model(self):
+        if self._model is not None:
+            return self._model
+        with self._model_lock:
+            if self._model is None:
+                from sentence_transformers import SentenceTransformer
+
+                started = time.perf_counter()
+                model = SentenceTransformer(EMBEDDING_MODEL)
+                model.encode("warm up", show_progress_bar=False)
+                self._model = model
+                logger.info("Embedding model ready in %.1fs", time.perf_counter() - started)
+        return self._model
+
+    def warm_up(self) -> None:
+        """Load the query embedding model before accepting semantic searches."""
+        self._ensure_model()
 
     def _ensure_collection(self):
         existing = self._client.get_collections()
@@ -373,6 +425,36 @@ class VectorStore:
         self._count = self._client.count(QDRANT_COLLECTION)
         _save_manifest({_fname(f): _file_hash(f) for f in source_files})
 
+    def resume_index(
+        self,
+        df: pd.DataFrame,
+        source_files: list[str],
+        progress_callback=None,
+    ) -> str:
+        """Continue an interrupted full build without re-embedding uploaded points."""
+        existing_ids: set[str] = set()
+        offset = None
+        while True:
+            page = self._client.scroll(
+                QDRANT_COLLECTION,
+                limit=500,
+                offset=offset,
+                with_payload=False,
+            )
+            existing_ids.update(str(point["id"]) for point in page.get("points", []))
+            offset = page.get("next_page_offset")
+            if offset is None:
+                break
+
+        self._upsert_rows(
+            df,
+            progress_callback,
+            skip_point_ids=existing_ids,
+        )
+        self._count = self._client.count(QDRANT_COLLECTION)
+        _save_manifest({_fname(f): _file_hash(f) for f in source_files})
+        return f"Resumed full build; skipped {len(existing_ids):,} existing points."
+
     # ── Incremental (production default) ─────────────────────────────────────
 
     def build_index_incremental(
@@ -400,31 +482,68 @@ class VectorStore:
 
         logger.info("Incremental index: embedding %s rows from %s file(s)...", f"{len(new_rows):,}", len(changed))
         self._upsert_rows(new_rows, progress_callback)
+        stale = self.reconcile(df)
         self._count = self._client.count(QDRANT_COLLECTION)
 
         updated = {**stored, **{_fname(f): _file_hash(f) for f in changed}}
         _save_manifest(updated)
-        return f"Incremental update: {len(new_rows):,} rows from {len(changed)} file(s) added."
+        return (f"Incremental update: {len(new_rows):,} rows from {len(changed)} file(s) added; "
+                f"{stale:,} stale vectors removed.")
+
+    def reconcile(self, df: pd.DataFrame) -> int:
+        """Delete Qdrant points no longer represented by the canonical data snapshot."""
+        expected = {
+            _str_to_uuid(_make_row_id(row, i))
+            for i, (_, row) in enumerate(df.iterrows())
+        }
+        actual: set[str] = set()
+        offset = None
+        while True:
+            page = self._client.scroll(QDRANT_COLLECTION, limit=500, offset=offset, with_payload=False)
+            actual.update(str(point["id"]) for point in page.get("points", []))
+            offset = page.get("next_page_offset")
+            if offset is None:
+                break
+        stale = sorted(actual - expected)
+        for start in range(0, len(stale), 256):
+            self._client.delete_points(QDRANT_COLLECTION, stale[start:start + 256])
+        if stale:
+            logger.info("Reconciliation removed %s stale Qdrant points", f"{len(stale):,}")
+        return len(stale)
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
-    def _upsert_rows(self, df: pd.DataFrame, progress_callback=None):
+    def _upsert_rows(
+        self,
+        df: pd.DataFrame,
+        progress_callback=None,
+        skip_point_ids: set[str] | None = None,
+    ):
         """Embed rows and upsert to Qdrant in batches."""
+        model = self._ensure_model()
         texts, metadatas, str_ids = [], [], []
+        skipped = 0
         for i, (_, row) in enumerate(df.iterrows()):
+            str_id = _make_row_id(row, i)
+            point_id = _str_to_uuid(str_id)
+            if skip_point_ids and point_id in skip_point_ids:
+                skipped += 1
+                continue
             text = _build_doc_text(row)
             meta = _build_metadata(row)
             meta["_doc_text"] = text
             texts.append(text)
             metadatas.append(meta)
-            str_ids.append(_make_row_id(row, i))
+            str_ids.append(str_id)
 
         total = len(texts)
+        if progress_callback and skipped:
+            progress_callback(skipped, skipped + total)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             for start in tqdm(range(0, total, _BATCH_SIZE), desc="Embedding", leave=False):
                 end     = min(start + _BATCH_SIZE, total)
-                vectors = self._model.encode(
+                vectors = model.encode(
                     texts[start:end], show_progress_bar=False
                 ).tolist()
                 points  = [
@@ -435,7 +554,7 @@ class VectorStore:
                 ]
                 self._client.upsert(QDRANT_COLLECTION, points)
                 if progress_callback:
-                    progress_callback(end, total)
+                    progress_callback(skipped + end, skipped + total)
 
     # ── Search ───────────────────────────────────────────────────────────────
 
@@ -448,8 +567,9 @@ class VectorStore:
         if not self.has_vectors():
             return []
 
+        model = self._ensure_model()
         t0 = time.perf_counter()
-        query_vector  = self._model.encode(query).tolist()
+        query_vector  = model.encode(query).tolist()
         record_metric("embedding_duration_ms", (time.perf_counter() - t0) * 1000)
 
         qdrant_filter = _chroma_where_to_qdrant(where)
@@ -466,7 +586,12 @@ class VectorStore:
         return [
             {
                 "document": r["payload"].get("_doc_text", ""),
-                "metadata": {k: v for k, v in r["payload"].items() if k != "_doc_text"},
+                "metadata": {
+                    **{k: v for k, v in r["payload"].items() if k != "_doc_text"},
+                    "source_id": str(r["id"]),
+                },
+                "source_id": str(r["id"]),
+                "scores": {"vector": float(r["score"])},
                 "distance": 1 - r["score"],   # cosine score → distance
             }
             for r in results

@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "data_version": "6e55ff7894030bca",
+  "generated_at": "2026-09-01T16:04:38.156517+00:00",
+  "record_count": 30795,
+  "analytics_file": "analytics-6e55ff7894030bca.json",
+  "posting_files": {
+    "qatar_linkedin_jun_2026": "postings/qatar-linkedin-jun-2026-de42e4a9.json",
+    "qatar_may_2026": "postings/qatar-may-2026-ab5e8428.json",
+    "saudi_arabia_linkedin_jun_2026": "postings/saudi-arabia-linkedin-jun-2026-1d3c7913.json",
+    "saudi_arabia_may_2026": "postings/saudi-arabia-may-2026-6a97ee40.json",
+    "uae_linkedin_jun_2026": "postings/uae-linkedin-jun-2026-9c550ec2.json",
+    "uae_may_2026": "postings/uae-may-2026-2d857eb4.json"
+  },
+  "datasets": {
+    "dumps": [
+      {
+        "_dump_id": "qatar_may_2026",
+        "_country": "Qatar",
+        "_timeline": "May 2026",
+        "_dump_label": "Qatar May 2026",
+        "_source": "Bayt",
+        "count": 2376
+      },
+      {
+        "_dump_id": "saudi_arabia_may_2026",
+        "_country": "Saudi Arabia",
+        "_timeline": "May 2026",
+        "_dump_label": "Saudi Arabia May 2026",
+        "_source": "Bayt",
+        "count": 8236
+      },
+      {
+        "_dump_id": "uae_may_2026",
+        "_country": "UAE",
+        "_timeline": "May 2026",
+        "_dump_label": "UAE May 2026",
+        "_source": "Bayt",
+        "count": 9923
+      },
+      {
+        "_dump_id": "qatar_linkedin_jun_2026",
+        "_country": "Qatar",
+        "_timeline": "Jun 2026",
+        "_dump_label": "Qatar Jun 2026 (LinkedIn)",
+        "_source": "LinkedIn",
+        "count": 2041
+      },
+      {
+        "_dump_id": "saudi_arabia_linkedin_jun_2026",
+        "_country": "Saudi Arabia",
+        "_timeline": "Jun 2026",
+        "_dump_label": "Saudi Arabia Jun 2026 (LinkedIn)",
+        "_source": "LinkedIn",
+        "count": 4441
+      },
+      {
+        "_dump_id": "uae_linkedin_jun_2026",
+        "_country": "UAE",
+        "_timeline": "Jun 2026",
+        "_dump_label": "UAE Jun 2026 (LinkedIn)",
+        "_source": "LinkedIn",
+        "count": 3778
+      }
+    ],
+    "timelines": [
+      "May 2026",
+      "Jun 2026"
+    ],
+    "sources": [
+      "Bayt",
+      "LinkedIn"
+    ]
+  },
+  "source_files": [
+    {
+      "name": "bayt_jobs_Qatar_12_May_2026.xlsx",
+      "bytes": 2540754,
+      "modified_ns": 1779370232552265600
+    },
+    {
+      "name": "bayt_jobs_Qatar_AR_12_May_2026.xlsx",
+      "bytes": 2907448,
+      "modified_ns": 1781594632883240200
+    },
+    {
+      "name": "bayt_jobs_Saudi_Arabia_12_May_2026.xlsx",
+      "bytes": 8790673,
+      "modified_ns": 1779022261483795100
+    },
+    {
+      "name": "bayt_jobs_Saudi_Arabia_AR_12_May_2026.xlsx",
+      "bytes": 11634478,
+      "modified_ns": 1781594671836640400
+    },
+    {
+      "name": "bayt_jobs_UAE_12_May_2026.xlsx",
+      "bytes": 11232683,
+      "modified_ns": 1779370185855259400
+    },
+    {
+      "name": "bayt_jobs_UAE_AR_12_May_2026.xlsx",
+      "bytes": 14430867,
+      "modified_ns": 1781594633189279500
+    },
+    {
+      "name": "linkedin_jobs_Qatar_1_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+      "bytes": 1084728,
+      "modified_ns": 1782206747255418700
+    },
+    {
+      "name": "linkedin_Jobs_Qatar_7_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+      "bytes": 2426432,
+      "modified_ns": 1782206747416920400
+    },
+    {
+      "name": "linkedin_jobs_Saudi_Arabia_1_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+      "bytes": 1312514,
+      "modified_ns": 1782206747515652900
+    },
+    {
+      "name": "linkedin_Jobs_Saudi_Arabia_7_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+      "bytes": 4566393,
+      "modified_ns": 1782206747784215300
+    },
+    {
+      "name": "linkedin_Jobs_UAE_1_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+      "bytes": 1877213,
+      "modified_ns": 1782206747919818600
+    },
+    {
+      "name": "linkedin_jobs_UAE_7_June_2026_LLM_Enriched_22_Jun_2026.xlsx",
+      "bytes": 3417637,
+      "modified_ns": 1782206748193367000
+    }
+  ]
+}

@@ -17,3 +17,4 @@ psutil>=5.9.0
 prometheus-client>=0.20.0
 sentry-sdk>=2.0.0
 langfuse>=4.0.0
+psycopg[binary]>=3.2.0

@@ -1,7 +1,7 @@
 # Data Schema
 
-This isn't a traditional relational database — there's no persistent multi-table
-SQL schema with foreign keys. The real data lives in three different places:
+The system separates job-market data from anonymous application records. The
+real data lives in three different places:
 
 1. **One flat table** (`job_posting`) — the ~30.8K postings, loaded from Excel
    into a pandas DataFrame at startup. `sql_engine.py` copies the *currently
@@ -10,8 +10,9 @@ SQL schema with foreign keys. The real data lives in three different places:
    between requests.
 2. **Qdrant Cloud** (`qdrant_point`) — a vector database, not relational.
    Each posting is embedded once into a point (id, 384-dim vector, payload).
-3. **In-memory chat state** (`chat_session` / `chat_message`) — lives in a
-   process dict with a 2-hour idle TTL (`session.py`), never written to disk.
+3. **Application PostgreSQL** (`chat_sessions`, `chat_messages`,
+   `rag_feedback`, `usage_events`) — Supabase in production. Without
+   `DATABASE_URL`, development falls back to local SQLite/in-memory sessions.
 
 The diagram below models these as logical entities so the *shape* of the data
 is documented in one place, not because a real foreign-key-enforced schema
@@ -82,10 +83,35 @@ erDiagram
         TEXT content
         DATETIME timestamp
     }
+    rag_feedback {
+        VARCHAR id PK
+        VARCHAR trace_id
+        VARCHAR session_id
+        BOOLEAN helpful
+        VARCHAR reason
+        TEXT comment
+        TEXT question
+        TEXT answer
+        DATETIME created_at
+    }
+    usage_event {
+        VARCHAR id PK
+        VARCHAR session_id
+        VARCHAR event_type
+        VARCHAR model
+        VARCHAR language
+        INTEGER dataset_count
+        FLOAT duration_ms
+        BOOLEAN success
+        TEXT metadata_json
+        DATETIME occurred_at
+    }
 
     dump ||--o{ job_posting : "scopes"
     job_posting ||--o| qdrant_point : "embeds"
     chat_session ||--o{ chat_message : "contains"
+    chat_session ||--o{ rag_feedback : "submits"
+    chat_session ||--o{ usage_event : "generates"
 ```
 
 GitHub renders this natively — no image, no external service. `filter_registry_entry`

@@ -29,6 +29,7 @@ RAG/eval_results_*.json
 RAG/dashboard-*.html
 RAG/dashboard_*.html
 RAG/tmp_*.py
+RAG/reports/
 
 # ── Next.js / Node ────────────────────────────────────────────────────────────
 frontend/node_modules/
@@ -42,6 +43,7 @@ frontend/.env.local
 .DS_Store
 Thumbs.db
 *.log
+.run/
 
 # ── Local tool config / reference material ───────────────────────────────────
 .claude/

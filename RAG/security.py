@@ -84,14 +84,28 @@ def validate_environment() -> list[str]:
     """
     problems: list[str] = []
 
-    if not os.getenv("QDRANT_URL"):
-        problems.append("QDRANT_URL is not set — vector search will fail.")
-    if not os.getenv("QDRANT_API_KEY"):
-        problems.append("QDRANT_API_KEY is not set — vector search will fail.")
-    if not (os.getenv("FANAR_API_KEY") or os.getenv("OPENAI_API_KEY")):
-        problems.append("No LLM key set — set FANAR_API_KEY and/or OPENAI_API_KEY.")
+    # RAG is an optional capability: dashboard analytics only need the local
+    # tabular data. Deployments that promise chat can opt back into fail-fast
+    # credential validation with REQUIRE_RAG=true.
+    require_rag = os.getenv("REQUIRE_RAG", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if require_rag:
+        if not os.getenv("QDRANT_URL"):
+            problems.append("QDRANT_URL is not set — vector search will fail.")
+        if not os.getenv("QDRANT_API_KEY"):
+            problems.append("QDRANT_API_KEY is not set — vector search will fail.")
+        if not (os.getenv("FANAR_API_KEY") or os.getenv("OPENAI_API_KEY")):
+            problems.append("No LLM key set — set FANAR_API_KEY and/or OPENAI_API_KEY.")
 
     if IS_PRODUCTION:
+        # PostgreSQL is optional for a single-instance public demo. Without it,
+        # sessions stay in memory and feedback uses local SQLite (which is
+        # ephemeral on most container hosts). Deployments that require durable
+        # application records can explicitly opt back into fail-fast validation.
+        require_database = os.getenv("REQUIRE_DATABASE", "false").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
+        if require_database and not os.getenv("DATABASE_URL", "").strip():
+            problems.append("DATABASE_URL is required when REQUIRE_DATABASE=true.")
         origins = os.getenv("ALLOWED_ORIGINS", "")
         if not origins.strip():
             problems.append("ALLOWED_ORIGINS is empty in production — CORS will block the frontend.")

@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mihna frontend
 
-## Getting Started
+The Next.js dashboard reads a versioned static snapshot from
+`public/data/dashboard`. It does not call FastAPI, parse Excel, or wait for the
+optional RAG service.
 
-First, run the development server:
+## Local dashboard
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+From the repository root:
+
+```powershell
+.\scripts\start-local.ps1
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000/app>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Refresh the data
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Only when the source files in `RAG/data` change:
 
-## Learn More
+```powershell
+.\scripts\build-dashboard-data.ps1
+```
 
-To learn more about Next.js, take a look at the following resources:
+Commit the generated manifest, analytics snapshot, and posting shards under
+`public/data/dashboard` so Vercel can serve them directly from its CDN.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Optional local chat
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```powershell
+.\scripts\start-local.ps1 -WithRag
+```
 
-## Deploy on Vercel
+The chat still uses the Python RAG backend for now. Dashboard availability does
+not depend on its startup or health.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Copy `.env.example` to `.env.local` for local work. On Vercel, set
+`NEXT_PUBLIC_API_URL` to the public HTTPS URL of the deployed Python API; a
+localhost value cannot work for visitors.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Verification
+
+```powershell
+.\scripts\test-local.ps1
+```

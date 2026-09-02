@@ -1,6 +1,8 @@
 # GCC Job Market Intelligence System
 ### RAG-Powered Labor Market Analytics Chatbot
 
+See [PRODUCTION_RAG.md](PRODUCTION_RAG.md) for tracing, grounding, evaluation, feedback, and ingestion controls.
+
 > Built at **HBKU (Hamad Bin Khalifa University)** · Data sources: **Bayt.com + LinkedIn** · QCRI Internship 2026
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
@@ -10,23 +12,97 @@
 
 A conversational AI assistant that answers natural language questions about the Gulf job market using **~30,000 real job postings from Bayt.com and LinkedIn** across Qatar, Saudi Arabia, and UAE — in both **English and Arabic**.
 
+## Runtime flow
+
+The dashboard and RAG use the same source data but are operationally independent:
+
+```text
+Excel/CSV snapshots
+  -> one-time normalization by RAG/build_static_dashboard.py
+  -> versioned static JSON in frontend/public/data/dashboard
+  -> Vercel/CDN delivery + browser-side filters, charts, drill-down, CSV/JSON export
+
+Chat (optional, independent)
+  -> structured analytics + Qdrant vectors
+  -> Fanar/OpenAI answer generation
+```
+
+The dashboard does not start Python, parse Excel, require Docker, or wait for
+Qdrant. The optional local RAG backend can still be started separately.
+
 ---
 
 ## Quick Start
 
-```bash
-# Backend (RAG API)
-cd RAG
-uvicorn server:app --port 8000 --reload
+### First-time setup (Windows / PowerShell)
 
-# Frontend (separate terminal)
-cd frontend
-npm install && npm run dev
+```powershell
+git clone https://github.com/AlbaraaAloush/ai-powered-job-market-intelligence.git
+cd ai-powered-job-market-intelligence
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r RAG\requirements.txt -r RAG\requirements-dev.txt
+npm --prefix frontend ci
+Copy-Item RAG\.env.example RAG\.env
 ```
 
-Open **http://localhost:3000**
+Add the required API credentials to `RAG/.env`. Never commit that file. For the
+full local chat, create `frontend/.env.local` with:
+
+```dotenv
+NEXT_PUBLIC_API_URL=http://localhost:8000
+ENABLE_CHAT=true
+```
+
+### Run
+
+```powershell
+# Fast dashboard only (no Docker, database, Python, or API keys)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
+
+# Complete local app: dashboard + API + RAG + feedback storage
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -WithRag
+```
+
+Open **http://localhost:3000/app**.
+
+Only after the source Excel/CSV files change, rebuild and commit the static
+snapshot:
+
+```powershell
+.\scripts\build-dashboard-data.ps1
+```
+
+On the first full start, loading the local embedding model can take roughly one
+minute. The script waits until `/health` reports `rag_status: ready`; it does not
+reprocess Excel. Later starts reuse the prebuilt compact data and Qdrant index.
+
+Feedback and anonymous usage events persist to local SQLite by default. Set
+`DATABASE_URL` to a Supabase/Postgres connection string if the team also needs
+persistent chat sessions across backend restarts. No account, IP address, or raw
+question text is stored in usage events.
+
+Run the verified local test suite with:
+
+```powershell
+.\scripts\test-local.ps1 -IncludeRag
+```
+
+Live LLM evaluation (uses API quota):
+
+```powershell
+.\scripts\test-local.ps1 -IncludeLiveRag
+```
+
+The current live evaluation passes **52/52 scenarios** with a **9.4-second p95**.
 
 See [RAG/README.md](RAG/README.md) for full backend setup.
+
+### Vercel showcase
+
+Set the Vercel project root to `frontend`. Leave `ENABLE_CHAT` unset (or set it
+to `false`). Vercel then serves the interactive dashboard from committed JSON;
+the Chat navigation is hidden and `/app/chat` returns 404. This showcase needs
+no Python backend, database, Qdrant, Docker, or AI API key.
 
 ---
 

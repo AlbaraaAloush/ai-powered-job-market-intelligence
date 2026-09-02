@@ -31,6 +31,7 @@ def test_identifier_pattern():
 
 
 def test_validate_environment_reports_missing_keys(monkeypatch):
+    monkeypatch.setenv("REQUIRE_RAG", "true")
     for var in ("QDRANT_URL", "QDRANT_API_KEY", "FANAR_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     problems = validate_environment()
@@ -41,6 +42,7 @@ def test_validate_environment_reports_missing_keys(monkeypatch):
 
 
 def test_validate_environment_clean(monkeypatch):
+    monkeypatch.setenv("REQUIRE_RAG", "true")
     monkeypatch.setenv("QDRANT_URL", "https://example.cloud.qdrant.io")
     monkeypatch.setenv("QDRANT_API_KEY", "k")
     monkeypatch.setenv("FANAR_API_KEY", "k")
@@ -49,6 +51,7 @@ def test_validate_environment_clean(monkeypatch):
 
 
 def test_production_rejects_localhost_origins(monkeypatch):
+    monkeypatch.setenv("REQUIRE_RAG", "true")
     monkeypatch.setenv("QDRANT_URL", "https://example.cloud.qdrant.io")
     monkeypatch.setenv("QDRANT_API_KEY", "k")
     monkeypatch.setenv("FANAR_API_KEY", "k")
@@ -56,3 +59,27 @@ def test_production_rejects_localhost_origins(monkeypatch):
     monkeypatch.setattr(security_module, "IS_PRODUCTION", True)
     problems = validate_environment()
     assert any("localhost" in p for p in problems)
+
+
+def test_production_allows_ephemeral_storage_by_default(monkeypatch):
+    monkeypatch.setattr(security_module, "IS_PRODUCTION", True)
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://jobs.example.org")
+    monkeypatch.setenv("REQUIRE_DATABASE", "false")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert not any("DATABASE_URL" in problem for problem in validate_environment())
+
+
+def test_production_can_require_durable_database(monkeypatch):
+    monkeypatch.setattr(security_module, "IS_PRODUCTION", True)
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://jobs.example.org")
+    monkeypatch.setenv("REQUIRE_DATABASE", "true")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert any("DATABASE_URL" in problem for problem in validate_environment())
+
+
+def test_dashboard_only_environment_does_not_require_rag_keys(monkeypatch):
+    monkeypatch.setenv("REQUIRE_RAG", "false")
+    for var in ("QDRANT_URL", "QDRANT_API_KEY", "FANAR_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(security_module, "IS_PRODUCTION", False)
+    assert validate_environment() == []

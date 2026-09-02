@@ -33,7 +33,7 @@ production** — point your Prometheus at the backend container directly
 | `qdrant_search_duration_ms` | histogram | — | Qdrant REST search round-trip |
 | `dashboard_cache_total` | counter | `result` = hit\|miss | dashboard response cache effectiveness |
 | `exceptions_captured_total` | counter | `type` | exceptions routed through `capture_exception` |
-| `active_sessions` | gauge | — | in-memory chat sessions (refreshed at scrape) |
+| `active_sessions` | gauge | — | active in-memory or PostgreSQL chat sessions |
 | `process_memory_mb` | gauge | — | RSS of the API process (refreshed at scrape) |
 | `app_info` | gauge | `version`, `environment` | constant 1 — join it for dashboards |
 

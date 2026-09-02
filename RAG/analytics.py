@@ -39,6 +39,33 @@ def _parse_skills(val) -> list[str]:
     return [t.strip() for t in tokens if t.strip() and len(t.strip()) >= 2]
 
 
+_SKILL_ALIASES = {
+    "communication": "Communication",
+    "communication skill": "Communication",
+    "communication skills": "Communication",
+    "project management": "Project Management",
+    "data analysis": "Data Analysis",
+    "data analytics": "Data Analysis",
+    "machine learning": "Machine Learning",
+    "problem solving": "Problem Solving",
+    "problem-solving": "Problem Solving",
+    "power bi": "Power BI",
+    "sql server": "SQL Server",
+    "sql": "SQL",
+    "python": "Python",
+}
+
+
+def _canonical_skill(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    key = cleaned.casefold().rstrip(".")
+    if key in _SKILL_ALIASES:
+        return _SKILL_ALIASES[key]
+    if cleaned.isupper() and len(cleaned) <= 6:
+        return cleaned
+    return cleaned.title()
+
+
 def _parse_salary_monthly(val) -> tuple[float, float] | None:
     """
     Parse salary strings like:
@@ -125,7 +152,9 @@ class AnalyticsEngine:
         c: Counter = Counter()
         if _has(sub, "skills"):
             for v in sub["skills"].dropna():
-                c.update(_parse_skills(v))
+                # Count postings mentioning a skill, not repeated mentions in
+                # one posting, and merge capitalization/wording variants.
+                c.update({_canonical_skill(skill) for skill in _parse_skills(v) if skill})
         return c
 
     # ── public stats methods ─────────────────────────────────────────────────

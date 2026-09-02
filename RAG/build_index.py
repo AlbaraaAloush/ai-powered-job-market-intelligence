@@ -7,6 +7,7 @@ The Streamlit app reads the pre-built index instantly — no waiting.
 Usage:
   python build_index.py           # incremental (only new/changed files)
   python build_index.py --full    # force full rebuild (needed after format changes)
+  python build_index.py --resume  # continue an interrupted full upload
 
 Production workflow:
   1. Drop new Excel file in data/
@@ -23,10 +24,12 @@ from tqdm import tqdm
 from config import DATA_DIR
 from data_loader import load_all, parse_file_info
 from vector_store import VectorStore
+from ingestion_quality import build_quality_report
 
 
 def main():
     force_full = "--full" in sys.argv
+    resume = "--resume" in sys.argv
 
     print("=" * 55)
     print("  GCC Job Market — Index Builder")
@@ -48,6 +51,9 @@ def main():
         size = Path(f).stat().st_size / 1_000_000
         print(f"  {Path(f).name}  ({info['country']}, {info['timeline']}, {size:.1f} MB)")
 
+    report = build_quality_report(source_files, DATA_DIR.parent / "reports" / "data_quality.json")
+    print(f"\nSchema validation passed; quality report: {DATA_DIR.parent / 'reports' / 'data_quality.json'}")
+
     # Load data
     print("\nLoading and normalising data...")
     t0 = time.time()
@@ -60,7 +66,10 @@ def main():
     vs = VectorStore()
     print(f"\nExisting index: {vs.count():,} documents")
 
-    if force_full:
+    if resume:
+        print("\nResume interrupted full build requested...")
+        mode = "resume"
+    elif force_full:
         print("\nForce full rebuild requested...")
         mode = "full"
     elif vs.needs_indexing(source_files):
@@ -84,6 +93,8 @@ def main():
     if mode == "full":
         vs.build_index(df, source_files, progress_callback=on_progress)
         msg = "Full rebuild"
+    elif mode == "resume":
+        msg = vs.resume_index(df, source_files, progress_callback=on_progress)
     else:
         msg = vs.build_index_incremental(df, source_files, progress_callback=on_progress)
 

@@ -26,18 +26,21 @@ in request-handling order, which has real value while the route count is small.
 """
 
 import asyncio
+import hashlib
 import io
 import json
+import os
 import re
 import threading
 import time
 import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator, Callable
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,8 +56,13 @@ from config import (
     ALLOWED_ORIGINS,
     APP_VERSION,
     AVAILABLE_MODELS,
+    CHAT_MODEL,
+    COMPACT_RUNTIME_DATA,
     DATA_DIR,
+    ENABLE_RAG,
     ENVIRONMENT,
+    WARM_EMBEDDING_ON_STARTUP,
+    WARM_RERANKER_ON_STARTUP,
     get_logger,
     set_request_id,
     set_session_id,
@@ -63,12 +71,11 @@ from data_loader import (
     load_all, parse_file_info, sort_timelines,
     parse_salary_mid, SALARY_BUCKET_BINS, SALARY_BUCKET_LABELS,
 )
+from dashboard_service import AGGREGATION_DIMENSIONS, DashboardDataService, DashboardQuery
 from filter_registry import translate_explicit_filters
-from vector_store import VectorStore
 from analytics import AnalyticsEngine
-from rag_engine import RAGEngine
-from retrieval import warm_up_reranker
-from session import SessionStore
+from session import PersistentSessionStore, SessionStore
+from storage import ApplicationDatabase
 from observability import (
     capture_exception,
     increment_counter,
@@ -76,7 +83,13 @@ from observability import (
     record_metric,
     render_prometheus,
     set_gauge_sources,
+    submit_feedback_score,
+    trace_rag_request,
 )
+from feedback_store import FeedbackStore
+from fast_answers import build_fast_answer
+from grounding import INDEX_SCHEMA_VERSION, PROMPT_VERSION, abstention_text, is_prompt_injection
+from usage_store import UsageStore
 from security import (
     IDENTIFIER_PATTERN,
     MAX_DUMP_ID_LEN,
@@ -103,6 +116,88 @@ _IDENTIFIER_RE = re.compile(IDENTIFIER_PATTERN)
 _state: dict = {}
 
 
+def _record_usage(**event) -> None:
+    """Best-effort analytics: a database problem must never break chat."""
+    try:
+        store = _state.get("usage")
+        if store is not None:
+            store.add(**event)
+    except Exception:
+        logger.exception("Unable to store anonymous usage event")
+
+
+class _UnavailableVectorStore:
+    """No-op semantic store used for SQL/Pandas chat degradation."""
+
+    @staticmethod
+    def count() -> int:
+        return 0
+
+    @staticmethod
+    def has_vectors() -> bool:
+        return False
+
+    @staticmethod
+    def search(*_args, **_kwargs) -> list[dict]:
+        return []
+
+
+def _initialise_rag(df: pd.DataFrame) -> None:
+    """Initialise optional RAG services without blocking dashboard startup."""
+    if not ENABLE_RAG:
+        _state.update({"rag_status": "disabled", "rag_error": None})
+        logger.info("RAG disabled by ENABLE_RAG=false; analytics API remains available")
+        return
+
+    _state.update({"rag_status": "initializing", "rag_error": None})
+    try:
+        # Heavy imports (torch, sentence-transformers, reranker code) live here
+        # so dashboard-only processes stay lean and start independently.
+        from vector_store import VectorStore
+        from rag_engine import RAGEngine
+
+        vs = VectorStore()
+        if WARM_EMBEDDING_ON_STARTUP:
+            vs.warm_up()
+        engine = RAGEngine(AnalyticsEngine(df), vs)
+
+        if WARM_RERANKER_ON_STARTUP:
+            from retrieval import warm_up_reranker
+            warm_up_reranker()
+
+        _state.update({
+            "vs": vs,
+            "engine": engine,
+            "rag_status": "ready",
+            "rag_error": None,
+        })
+        logger.info("RAG ready — %s vectors in Qdrant", f"{vs.count():,}")
+    except Exception as exc:
+        # Never leak credential-bearing URLs through health responses. The full
+        # exception remains in server logs for operators; clients get its class.
+        logger.exception("Semantic store initialisation failed; enabling structured-chat fallback")
+        try:
+            # SQL and Pandas context still ground analytical answers in the real
+            # dataset. Only embedding similarity/job-description retrieval is
+            # absent until Qdrant returns.
+            engine = RAGEngine(AnalyticsEngine(df), _UnavailableVectorStore())
+            _state.update({
+                "vs": None,
+                "engine": engine,
+                "rag_status": "degraded",
+                "rag_error": type(exc).__name__,
+            })
+            logger.warning("RAG running in structured-only mode (SQL/Pandas, no semantic vectors)")
+        except Exception as fallback_exc:
+            _state.update({
+                "vs": None,
+                "engine": None,
+                "rag_status": "unavailable",
+                "rag_error": type(fallback_exc).__name__,
+            })
+            logger.exception("Structured-chat fallback also failed; dashboard remains available")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Loading data and initialising engines... (environment=%s, version=%s)", ENVIRONMENT, APP_VERSION)
@@ -115,25 +210,31 @@ async def lifespan(app: FastAPI):
         str(p) for p in (list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.csv")))
         if not p.name.startswith("~$") and not parse_file_info(p)["is_ar"]
     )
-    df, timelines = load_all(DATA_DIR)
+    df, timelines = load_all(DATA_DIR, compact=COMPACT_RUNTIME_DATA)
 
-    vs      = VectorStore()
-    engine  = RAGEngine(AnalyticsEngine(df), vs)
-    sessions = SessionStore()
-
-    # Pay the reranker's one-time model-load cost here, not on a random
-    # user's first chat message (same rationale as VectorStore's embedding
-    # model above — both are eager-loaded exactly once at boot).
-    warm_up_reranker()
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    application_db = ApplicationDatabase(
+        database_url=database_url,
+        sqlite_path=DATA_DIR.parent / "chroma_db" / "application.sqlite3",
+    )
+    sessions = PersistentSessionStore(application_db) if database_url else SessionStore()
 
     _state.update({
         "df":           df,
         "timelines":    timelines,
         "source_files": source_files,
-        "vs":           vs,
-        "engine":       engine,
+        "vs":           None,
+        "engine":       None,
+        "rag_status":   "initializing" if ENABLE_RAG else "disabled",
+        "rag_error":    None,
         "sessions":     sessions,
         "started_at":   time.time(),
+        "data_version": hashlib.sha256("|".join(
+            f"{Path(p).name}:{Path(p).stat().st_size}:{Path(p).stat().st_mtime_ns}" for p in source_files
+        ).encode()).hexdigest()[:16],
+        "database": application_db,
+        "feedback": FeedbackStore(database=application_db),
+        "usage": UsageStore(application_db),
     })
 
     # Background cleanup thread — removes stale sessions every 30 min
@@ -146,6 +247,11 @@ async def lifespan(app: FastAPI):
 
     t = threading.Thread(target=_cleanup_loop, daemon=True)
     t.start()
+
+    # Qdrant and ML models are optional and potentially slow/unavailable. They
+    # initialise after core state is ready so datasets/dashboard/export routes
+    # never depend on semantic retrieval infrastructure.
+    threading.Thread(target=_initialise_rag, args=(df,), daemon=True).start()
 
     # Activate whichever observability backends have credentials (Sentry/Langfuse)
     # in the background — NOT awaited here. sentry_sdk.init() has been observed
@@ -163,7 +269,7 @@ async def lifespan(app: FastAPI):
         active_sessions=lambda: sessions.stats()["active_sessions"],
     )
 
-    logger.info("Ready — %s postings | %s vectors in Qdrant", f"{len(df):,}", f"{vs.count():,}")
+    logger.info("Core API ready — %s postings | RAG %s", f"{len(df):,}", _state["rag_status"])
     yield
 
 
@@ -335,7 +441,7 @@ class ChatRequest(BaseModel):
     # can reach the SQL / Qdrant layers that interpolate ids and filters.
     question:   str
     session_id: str = Field(min_length=1, max_length=MAX_SESSION_ID_LEN, pattern=IDENTIFIER_PATTERN)
-    model:      str = Field(default="fanar/Fanar-C-2-27B", max_length=MAX_MODEL_LEN)
+    model:      str = Field(default=CHAT_MODEL, max_length=MAX_MODEL_LEN)
     dump_ids:   list[str] = Field(default=[], max_length=MAX_DUMP_IDS)
     filters:    dict[str, str] = Field(default={})
 
@@ -358,6 +464,16 @@ class ChatRequest(BaseModel):
             if not isinstance(value, str) or len(value) > MAX_FILTER_VALUE_LEN:
                 raise ValueError(f"filter values must be strings under {MAX_FILTER_VALUE_LEN} chars")
         return v
+
+
+class FeedbackRequest(BaseModel):
+    trace_id: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    session_id: str = Field(min_length=1, max_length=MAX_SESSION_ID_LEN, pattern=IDENTIFIER_PATTERN)
+    helpful: bool
+    reason: str = Field(default="", max_length=80)
+    comment: str = Field(default="", max_length=1000)
+    question: str = Field(default="", max_length=4000)
+    answer: str = Field(default="", max_length=12000)
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +499,55 @@ def _scope_plot_df(dumps: str, country: str, timeline: str, explicit_active: dic
         if column in plot_df.columns:
             plot_df = plot_df[plot_df[column].astype(str).str.lower() == str(value).lower()]
     return plot_df
+
+
+def _dashboard_query(
+    dumps: str = "",
+    query: str = "",
+    country: str = "",
+    timeline: str = "",
+    sector: str = "",
+    company: str = "",
+    title: str = "",
+    skill: str = "",
+    location: str = "",
+    career_level: str = "",
+    employment_type: str = "",
+    experience: str = "",
+    company_size: str = "",
+    language: str = "",
+    salary_bracket: str = "",
+    education: str = "",
+    gender: str = "",
+    remote: str = "",
+    nationalization: str = "",
+    bilingual: str = "",
+    arabic_term: str = "",
+) -> DashboardQuery:
+    """Build the allowlisted query object used by drill-down/export routes."""
+    return DashboardQuery(
+        dumps=tuple(item for item in dumps.split(",") if item),
+        query=query,
+        country=country,
+        timeline=timeline,
+        sector=sector,
+        company=company,
+        title=title,
+        skill=skill,
+        location=location,
+        career_level=career_level,
+        employment_type=employment_type,
+        experience=experience,
+        company_size=company_size,
+        language=language,
+        salary_bracket=salary_bracket,
+        education=education,
+        gender=gender,
+        remote=remote,
+        nationalization=nationalization,
+        bilingual=bilingual,
+        arabic_term=arabic_term,
+    )
 
 
 _AR_TO_EN_CITY: dict[str, str] = {
@@ -440,7 +605,7 @@ _MAX_QUESTION_LEN = 2000
 
 
 async def _sse_stream(
-    engine: RAGEngine,
+    engine: "RAGEngine",
     question: str,
     history: list[dict],
     model: str,
@@ -458,8 +623,15 @@ async def _sse_stream(
         try:
             for token in engine.answer(question, history, model=model, dump_ids=dump_ids, prepared=prepared):
                 loop.call_soon_threadsafe(q.put_nowait, token)
-        except Exception as e:
-            loop.call_soon_threadsafe(q.put_nowait, f"\n\n[Error: {e}]")
+        except Exception:
+            logger.exception("Answer generation failed")
+            arabic = bool(re.search(r"[\u0600-\u06ff]", question))
+            message = (
+                "تعذر إكمال الإجابة خلال المهلة الزمنية. حاول مرة أخرى أو اجعل السؤال أكثر تحديدًا."
+                if arabic else
+                "I couldn’t complete this answer within 20 seconds. Please retry or make the question more specific."
+            )
+            loop.call_soon_threadsafe(q.put_nowait, message)
         finally:
             loop.call_soon_threadsafe(q.put_nowait, None)
 
@@ -469,7 +641,6 @@ async def _sse_stream(
     while True:
         token = await q.get()
         if token is None:
-            yield "data: [DONE]\n\n"
             break
         yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
@@ -491,8 +662,9 @@ def _memory_mb() -> float | None:
 
 @app.get("/health")
 def health():
-    vs: VectorStore | None = _state.get("vs")
-    qdrant_status = "not_initialized"
+    vs = _state.get("vs")
+    rag_status = _state.get("rag_status", "not_initialized")
+    qdrant_status = "unavailable" if rag_status in {"degraded", "unavailable"} else "not_initialized"
     vector_count = 0
     if vs is not None:
         try:
@@ -510,10 +682,16 @@ def health():
         "postings":          len(_state.get("df", [])),
         "vectors":           vector_count,
         "qdrant_status":     qdrant_status,
-        "model_configured":  next(iter(AVAILABLE_MODELS.values()), None),
+        "rag_status":        rag_status,
+        "rag_error":         _state.get("rag_error"),
+        "model_configured":  CHAT_MODEL,
         "models_available":  len(AVAILABLE_MODELS),
         "sessions":          _state["sessions"].stats() if "sessions" in _state else {},
         "memory_mb":         _memory_mb(),
+        "storage": {
+            "backend": _state["database"].backend if "database" in _state else "unavailable",
+            "status": "ok" if "database" in _state and _state["database"].ping() else "error",
+        },
     }
 
 
@@ -531,6 +709,7 @@ def metrics():
 def create_session():
     """Create a new chat session. Frontend calls this on mount."""
     sid = _state["sessions"].create()
+    _record_usage(session_id=sid, event_type="session_created")
     return {"session_id": sid}
 
 
@@ -538,6 +717,7 @@ def create_session():
 def clear_session(session_id: str):
     """Clear chat history for a session (user clicks 'Clear chat')."""
     _state["sessions"].clear(session_id)
+    _record_usage(session_id=session_id, event_type="session_cleared")
     return {"ok": True}
 
 
@@ -570,7 +750,7 @@ def get_models():
             {"label": label, "value": value}
             for label, value in AVAILABLE_MODELS.items()
         ],
-        "default": next(iter(AVAILABLE_MODELS.values())),
+        "default": CHAT_MODEL,
     }
 
 
@@ -838,6 +1018,9 @@ def get_dashboard(
         "country_comparison": country_data,
         "trends":         trend_data,
     }
+    # Extra bilingual/GCC indicators used by the redesigned dashboard. The
+    # service derives them from the same scoped dataframe—never from Qdrant.
+    resp.update(DashboardDataService(plot_df).supplementary_analytics(DashboardQuery()))
     _dash_cache_store(cache_key, resp)
     return resp
 
@@ -948,6 +1131,105 @@ def export_dashboard_chart(
     )
 
 
+@app.get("/api/dashboard/postings")
+def get_dashboard_postings(
+    dumps: str = "",
+    query: str = Query(default="", max_length=300),
+    country: str = "",
+    timeline: str = "",
+    sector: str = "",
+    company: str = "",
+    title: str = "",
+    skill: str = "",
+    location: str = "",
+    career_level: str = "",
+    employment_type: str = "",
+    experience: str = "",
+    company_size: str = "",
+    language: str = "",
+    salary_bracket: str = "",
+    education: str = "",
+    gender: str = "",
+    remote: str = "",
+    nationalization: str = "",
+    bilingual: str = "",
+    arabic_term: str = "",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    format: str = Query(default="", pattern="^(|csv|json)$"),
+):
+    """Browse, search, paginate, or export source postings for a chart scope."""
+    service = DashboardDataService(_state["df"])
+    dashboard_query = _dashboard_query(
+        dumps, query, country, timeline, sector, company, title, skill, location,
+        career_level, employment_type, experience, company_size, language,
+        salary_bracket, education, gender, remote, nationalization, bilingual,
+        arabic_term,
+    )
+    try:
+        if format:
+            payload, media_type = service.posting_export(dashboard_query, format)
+            return Response(
+                payload,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="dashboard_postings.{format}"'},
+            )
+        return service.postings(dashboard_query, page, page_size)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/dashboard/aggregation")
+def get_dashboard_aggregation(
+    dimension: str = Query(...),
+    dumps: str = "",
+    query: str = Query(default="", max_length=300),
+    country: str = "",
+    timeline: str = "",
+    sector: str = "",
+    company: str = "",
+    title: str = "",
+    skill: str = "",
+    location: str = "",
+    career_level: str = "",
+    employment_type: str = "",
+    experience: str = "",
+    company_size: str = "",
+    language: str = "",
+    salary_bracket: str = "",
+    education: str = "",
+    gender: str = "",
+    remote: str = "",
+    nationalization: str = "",
+    bilingual: str = "",
+    arabic_term: str = "",
+    format: str = Query(default="", pattern="^(|csv|json)$"),
+):
+    """Return or export a complete allowlisted aggregation for a chart."""
+    if dimension not in AGGREGATION_DIMENSIONS:
+        raise HTTPException(status_code=400, detail="Invalid aggregation dimension")
+
+    service = DashboardDataService(_state["df"])
+    dashboard_query = _dashboard_query(
+        dumps, query, country, timeline, sector, company, title, skill, location,
+        career_level, employment_type, experience, company_size, language,
+        salary_bracket, education, gender, remote, nationalization, bilingual,
+        arabic_term,
+    )
+    try:
+        if format:
+            payload, media_type = service.aggregation_export(dashboard_query, dimension, format)
+            return Response(
+                payload,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="dashboard_{dimension}.{format}"'},
+            )
+        rows = service.aggregation(dashboard_query, dimension)
+        return {"dimension": dimension, "total_values": len(rows), "rows": rows}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/chat")
 @limiter.limit("30/minute")
 async def chat(request: Request, body: ChatRequest):
@@ -957,6 +1239,7 @@ async def chat(request: Request, body: ChatRequest):
     Final event: data: [DONE]
     """
     set_session_id(body.session_id)
+    chat_started_at = time.perf_counter()
 
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
@@ -966,52 +1249,228 @@ async def chat(request: Request, body: ChatRequest):
             detail=f"Question too long — maximum {_MAX_QUESTION_LEN} characters.",
         )
 
-    model    = body.model if body.model in AVAILABLE_MODELS.values() else "fanar/Fanar-C-2-27B"
+    model    = body.model if body.model in AVAILABLE_MODELS.values() else CHAT_MODEL
     dump_ids = [d for d in body.dump_ids if d] or None
     explicit_filters = {k: v for k, v in body.filters.items() if v and str(v).strip()}
+    language = "ar" if re.search(r"[\u0600-\u06ff]", body.question) else "en"
+    usage_base = {
+        "session_id": body.session_id,
+        "model": model,
+        "language": language,
+        "dataset_count": len(dump_ids or []),
+    }
+    _record_usage(
+        **usage_base,
+        event_type="chat_submitted",
+        metadata={"question_chars": len(body.question), "filter_count": len(explicit_filters)},
+    )
+
+    if is_prompt_injection(body.question):
+        increment_counter("prompt_injection_blocked")
+        async def blocked_stream():
+            with trace_rag_request(
+                question=body.question, session_id=body.session_id, model=body.model,
+                metadata={"application_version": APP_VERSION, "data_version": _state.get("data_version", "unknown"),
+                          "index_version": INDEX_SCHEMA_VERSION, "prompt_version": PROMPT_VERSION,
+                          "security_decision": "prompt_injection_blocked"},
+            ) as blocked_trace:
+                answer = abstention_text(bool(re.search(r'[\u0600-\u06ff]', body.question)), 'prompt_injection')
+                blocked_trace.update(output={"answer": answer, "abstention": {"abstained": True, "reason": "prompt_injection"}})
+                info = {"trace_id": blocked_trace.trace_id, "layers_used": ["Prompt-injection guard"],
+                        "semantic_hits": [], "sql_snippet": "", "needs_agg": False,
+                        "decomposed": {}, "versions": {"application": APP_VERSION, "prompt": PROMPT_VERSION}}
+                yield f"data: {json.dumps({'type': 'retrieval', 'info': info})}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'token': answer})}\n\n"
+                _record_usage(
+                    **usage_base,
+                    event_type="chat_completed",
+                    duration_ms=round((time.perf_counter() - chat_started_at) * 1000, 1),
+                    metadata={"mode": "blocked"},
+                )
+                yield "data: [DONE]\n\n"
+        return StreamingResponse(blocked_stream(), media_type="text/event-stream")
 
     sessions: SessionStore = _state["sessions"]
     history  = sessions.get_history(body.session_id)
 
+    # Deterministic answers remain available while the semantic model/index is
+    # still warming up. This is what lets users ask counts, trends, skills, and
+    # scope questions immediately after opening the dashboard.
+    loop = asyncio.get_running_loop()
+    fast = await loop.run_in_executor(
+        None,
+        lambda: build_fast_answer(
+            _state["df"], body.question, history=history, dump_ids=dump_ids,
+        ),
+    )
+
+    engine = _state.get("engine")
+    if engine is None and fast is None:
+        status = _state.get("rag_status", "unavailable")
+        _record_usage(
+            **usage_base,
+            event_type="chat_failed",
+            duration_ms=round((time.perf_counter() - chat_started_at) * 1000, 1),
+            success=False,
+            metadata={"reason": "rag_starting", "rag_status": status},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Semantic job search is still starting (status: {status}). Exact dashboard questions are already available.",
+        )
+
     # Append user message immediately
     sessions.append(body.session_id, "user", body.question)
 
-    engine: RAGEngine = _state["engine"]
+    if fast is not None:
+        async def fast_stream():
+            # Deterministic answers do not create a remote LLM trace. Avoiding
+            # that synchronous observability flush keeps exact facts genuinely
+            # instant; feedback is still durably linked by this local trace ID.
+            trace_id = uuid.uuid4().hex
+            evidence = fast.get("evidence", [])
+            info = {
+                "trace_id": trace_id,
+                "mode": fast.get("intent", "analytics"),
+                "scope": fast.get("scope", ""),
+                "evidence_count": fast.get("evidence_count", 0),
+                "decomposed": {},
+                "needs_agg": fast.get("intent") not in {"conversation", "help"},
+                "layers_used": ["Selected dataset"],
+                "sql_snippet": "",
+                "semantic_hits": evidence,
+                "versions": {
+                    "application": APP_VERSION,
+                    "data": _state.get("data_version"),
+                    "prompt": PROMPT_VERSION,
+                },
+            }
+            answer = fast["answer"]
+            yield f"data: {json.dumps({'type': 'retrieval', 'info': info})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'token': answer})}\n\n"
+            sessions.append(body.session_id, "assistant", answer)
+            _record_usage(
+                **usage_base,
+                event_type="chat_completed",
+                duration_ms=round((time.perf_counter() - chat_started_at) * 1000, 1),
+                metadata={"mode": fast.get("intent", "analytics")},
+            )
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(fast_stream(), media_type="text/event-stream")
 
     async def event_stream():
         loop = asyncio.get_running_loop()
 
-        # Step 1: decompose + SQL once, shared by the retrieval-info panel and
-        # the answer generator below — avoids redundant Fanar API calls.
-        def _prepare():
-            return engine._prepare(body.question, history, dump_ids=dump_ids, explicit_filters=explicit_filters)
+        with trace_rag_request(
+            question=body.question, session_id=body.session_id, model=model,
+            metadata={
+                "application_version": APP_VERSION,
+                "data_version": _state.get("data_version", "unknown"),
+                "index_version": INDEX_SCHEMA_VERSION,
+                "prompt_version": PROMPT_VERSION,
+                "dump_ids": dump_ids or [],
+                "filters": explicit_filters,
+            },
+        ) as rag_trace:
 
-        try:
-            prepared = await loop.run_in_executor(None, _prepare)
-        except Exception:
-            prepared = None
+            # Step 1: decompose + SQL once.
+            def _prepare():
+                return engine._prepare(body.question, history, dump_ids=dump_ids, explicit_filters=explicit_filters)
 
-        # Step 2: retrieval info as the very first event (decomposition + semantic hits)
-        def _get_ret():
-            return engine.get_retrieval_info(body.question, history, dump_ids=dump_ids, prepared=prepared)
-
-        try:
-            ret_info = await loop.run_in_executor(None, _get_ret)
-            yield f"data: {json.dumps({'type': 'retrieval', 'info': ret_info})}\n\n"
-        except Exception:
-            pass
-
-        # Step 3: stream answer tokens
-        full_response: list[str] = []
-        async for event in _sse_stream(engine, body.question, history, model, dump_ids=dump_ids, prepared=prepared):
-            yield event
-            if event.startswith("data: ") and '"token"' in event:
+            with rag_trace.stage("query.decompose-and-structure", input={
+                "query": body.question, "filters": explicit_filters, "dump_ids": dump_ids or []
+            }) as stage:
                 try:
-                    token = json.loads(event[6:]).get("token", "")
-                    full_response.append(token)
+                    prepared = await loop.run_in_executor(None, _prepare)
+                    if prepared is not None:
+                        stage.update(output={
+                            "rewritten_query": prepared.get("semantic_q"),
+                            "resolved_query": prepared.get("resolved_q"),
+                            "filters": prepared.get("filters"),
+                            "sql_context": prepared.get("sql_ctx"),
+                        })
                 except Exception:
-                    pass
+                    prepared = None
 
-        sessions.append(body.session_id, "assistant", "".join(full_response))
+            if prepared is None:
+                prepared = engine._prepare(body.question, history, dump_ids=dump_ids, explicit_filters=explicit_filters)
+            prepared["_unified_trace"] = True
+
+            # Build exactly one evidence snapshot shared by tracing, the UI and generation.
+            with rag_trace.stage("retrieval.hybrid", kind="retriever", input={
+                "rewritten_query": prepared.get("semantic_q"), "filters": prepared.get("filters")
+            }) as stage:
+                context = await loop.run_in_executor(
+                    None, lambda: engine._build_full_context(
+                        body.question, history, dump_ids=dump_ids, prepared=prepared
+                    )
+                )
+                stage.update(output={
+                    "score_progression": prepared.get("retrieval_artifacts", {}).get("sources", []),
+                    "sanitized_context": context,
+                    "prompt_injections_detected": prepared.get("retrieval_artifacts", {}).get("prompt_injections_detected", 0),
+                })
+
+            ret_info = engine.get_retrieval_info(
+                body.question, history, dump_ids=dump_ids, prepared=prepared
+            )
+            ret_info["trace_id"] = rag_trace.trace_id
+            ret_info["versions"] = {
+                "application": APP_VERSION, "data": _state.get("data_version"),
+                "index": INDEX_SCHEMA_VERSION, "prompt": PROMPT_VERSION,
+            }
+            yield f"data: {json.dumps({'type': 'retrieval', 'info': ret_info})}\n\n"
+
+            full_response: list[str] = []
+            with rag_trace.stage("generation.answer", kind="generation", metadata={"model": model}) as stage:
+                async for event in _sse_stream(engine, body.question, history, model, dump_ids=dump_ids, prepared=prepared):
+                    yield event
+                    if event.startswith("data: ") and '"token"' in event:
+                        try:
+                            token = json.loads(event[6:]).get("token", "")
+                            full_response.append(token)
+                        except Exception:
+                            pass
+                stage.update(output={
+                    "answer": "".join(full_response),
+                    "validation": prepared.get("answer_validation", {}),
+                    "abstention": prepared.get("abstention", {}),
+                }, usage_details={
+                    "input": max(1, len(context) // 4),
+                    "output": max(1, len("".join(full_response)) // 4),
+                    "total": max(2, (len(context) + len("".join(full_response))) // 4),
+                })
+
+            answer_text = "".join(full_response)
+            sessions.append(body.session_id, "assistant", answer_text)
+            rag_trace.update(output={
+                "answer": answer_text,
+                "validation": prepared.get("answer_validation", {}),
+                "abstention": prepared.get("abstention", {}),
+            })
+            _record_usage(
+                **usage_base,
+                event_type="chat_completed",
+                duration_ms=round((time.perf_counter() - chat_started_at) * 1000, 1),
+                metadata={"mode": "semantic", "trace_id": rag_trace.trace_id},
+            )
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/feedback")
+@limiter.limit("60/minute")
+async def feedback(request: Request, body: FeedbackRequest):
+    record = body.model_dump()
+    record["id"] = str(uuid.uuid4())
+    _state["feedback"].add(record)
+    sent = submit_feedback_score(body.trace_id, body.helpful, body.reason, body.comment)
+    _record_usage(
+        session_id=body.session_id,
+        event_type="feedback_submitted",
+        metadata={"helpful": body.helpful, "has_comment": bool(body.comment.strip())},
+    )
+    increment_counter("rag_feedback", helpful=str(body.helpful).lower())
+    return {"success": True, "id": record["id"], "langfuse_synced": sent}

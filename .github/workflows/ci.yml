@@ -2,9 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-tests:
@@ -30,7 +38,36 @@ jobs:
       # session store, security policy, SQL scoping, and request schemas.
       - name: Run unit tests
         working-directory: RAG
-        run: pytest -m "not live" -v
+        run: pytest -m "not live" --ignore=tests/test_live_api.py -q
+
+  postgres-storage:
+    name: PostgreSQL migrations + storage tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gcc_jobs_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gcc_jobs_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gcc_jobs_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "psycopg[binary]>=3.2" pytest
+      - name: Apply migrations
+        working-directory: RAG
+        run: python migrate_database.py
+      - name: Verify PostgreSQL stores
+        working-directory: RAG
+        run: pytest tests/test_storage.py -q
 
   frontend-build:
     name: Frontend type-check + build
@@ -57,17 +94,21 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
 
-      # eslint has pre-existing findings in lib/i18n.tsx & lib/theme.tsx
-      # (tracked in PROJECT_SPEC.md technical debt) — report, don't block.
-      - name: Lint (advisory)
+      - name: Lint
         run: npx eslint .
-        continue-on-error: true
 
   security-scans:
-    name: Dependency audits (advisory)
+    name: Secret + dependency scans
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -76,8 +117,7 @@ jobs:
       - name: pip-audit (backend)
         run: |
           pip install pip-audit
-          pip-audit -r RAG/requirements.txt
-        continue-on-error: true
+          pip-audit -r RAG/requirements-api.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -86,12 +126,9 @@ jobs:
       - name: npm audit (frontend)
         working-directory: frontend
         run: npm audit --audit-level=high
-        continue-on-error: true
 
   docker-builds:
     name: Docker image builds
-    # Heavy (torch download) — main branch only; PRs get test/build feedback above.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +140,8 @@ jobs:
         with:
           context: RAG
           push: false
+          build-args: |
+            INSTALL_RAG_MODELS=false
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -115,3 +154,9 @@ jobs:
             NEXT_PUBLIC_API_URL=
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Validate Compose files
+        run: |
+          cp RAG/.env.example RAG/.env
+          docker compose config --quiet
+          docker compose -f docker-compose.prod.yml config --quiet

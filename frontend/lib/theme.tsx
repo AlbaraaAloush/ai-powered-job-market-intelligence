@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, use, useCallback, useEffect, useMemo, useState, ReactNode } from 'react';
 
 type Theme = 'dark' | 'light';
 
@@ -10,36 +10,59 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'dark',
+  theme: 'light',
   toggleTheme: () => {},
 });
 
+const faviconByTheme: Record<Theme, string> = {
+  light: '/brand/mihna-favicon-light.png',
+  dark: '/brand/mihna-favicon-dark.png',
+};
+
+function applyDocumentTheme(theme: Theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+
+  const favicon = document.getElementById('mihna-favicon') as HTMLLinkElement | null;
+  if (favicon) favicon.href = faviconByTheme[theme];
+}
+
+/* SSR + initial client render both produce theme='light' so hydration
+   matches. After mount, the effect synchronizes React state with the
+   localStorage value the inline script in layout.tsx already applied
+   to html[data-theme]. The setState-in-effect pattern is the canonical
+   way to sync with browser-only state (per React docs); the lint rule
+   is overly broad here, hence the targeted suppression. */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('light');
 
   useEffect(() => {
-    const stored = localStorage.getItem('theme') as Theme | null;
-    const initial = stored === 'light' || stored === 'dark' ? stored : 'dark';
+    const stored = window.localStorage.getItem('theme') as Theme | null;
+    const initial: Theme = stored === 'dark' || stored === 'light' ? stored : 'light';
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
-    document.documentElement.setAttribute('data-theme', initial);
+    applyDocumentTheme(initial);
   }, []);
 
-  function toggleTheme() {
-    setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('theme', next);
-      return next;
-    });
-  }
+  const toggleTheme = useCallback(() => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    applyDocumentTheme(next);
+    try {
+      window.localStorage.setItem('theme', next);
+    } catch {
+      /* Private browsing or quota failures do not block theme changes. */
+    }
+    setTheme(next);
+  }, [theme]);
+
+  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
 }
 
 export function useTheme() {
-  return useContext(ThemeContext);
+  return use(ThemeContext);
 }

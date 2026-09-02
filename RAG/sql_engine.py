@@ -9,6 +9,7 @@ The schema sent to the LLM is built dynamically from the actual DataFrame —
 countries, timelines, sectors, and row counts are never hardcoded.
 """
 
+import hashlib
 import re
 import sqlite3
 import time
@@ -16,7 +17,7 @@ import time
 import pandas as pd
 from dotenv import load_dotenv
 
-from config import INTERNAL_MODEL, get_logger, make_client
+from config import CHROMA_DIR, DATA_DIR, INTERNAL_MODEL, get_logger, make_client
 from observability import record_metric
 
 load_dotenv()
@@ -87,6 +88,16 @@ CRITICAL SQL RULES (these prevent runtime errors):
   Use two single-quotes to escape an apostrophe: O''Brien, Bachelor''s
 """
 
+# Only these columns are legal in generated SQL. Keeping descriptions, Arabic
+# page content, URLs, and other large text blobs out of SQLite avoids a second
+# full-corpus copy in memory (hundreds of MB) without changing query behavior.
+_SQL_COLUMNS = (
+    "job_title", "company", "category", "_sector_norm", "location", "salary",
+    "employment_type", "_employment_norm", "career_level", "_career_norm",
+    "experience", "education", "language", "skills", "company_size", "gender",
+    "_timeline", "_country", "_dump_id",
+)
+
 
 def _build_system(df: pd.DataFrame) -> str:
     """
@@ -141,10 +152,48 @@ class SQLEngine:
     def __init__(self, df: pd.DataFrame):
         # check_same_thread=False is safe here: all queries are read-only SELECT statements,
         # and SQLite allows concurrent reads from multiple threads without data corruption.
-        self.conn = sqlite3.connect(":memory:", check_same_thread=False)
-        df.to_sql("jobs", self.conn, index=False, if_exists="replace")
-        self._has_dump_col = "_dump_id" in df.columns
-        self._columns      = set(df.columns)
+        sql_columns = [column for column in _SQL_COLUMNS if column in df.columns]
+        sql_df = df.loc[:, sql_columns]
+
+        # Content-addressed, ignored runtime database. Unlike :memory:, this does
+        # not duplicate the analytical corpus in process RAM and can be reused on
+        # restart when the source data is unchanged.
+        digest = hashlib.sha256()
+        digest.update("\0".join(sql_columns).encode("utf-8"))
+        digest.update(str(len(sql_df)).encode("ascii"))
+        # Source file metadata is a cheap and reliable invalidation key for the
+        # normal application path. Tests/synthetic callers fall back to hashing
+        # a bounded sample rather than categorising the entire object-heavy df.
+        source_names = (
+            sorted(str(value) for value in df["_source_file"].dropna().unique())
+            if "_source_file" in df.columns else []
+        )
+        if source_names:
+            for source_name in source_names:
+                source_path = DATA_DIR / source_name
+                digest.update(source_name.encode("utf-8"))
+                if source_path.exists():
+                    stat = source_path.stat()
+                    digest.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode("ascii"))
+        else:
+            sample = pd.concat([sql_df.head(64), sql_df.tail(64)]).astype(str)
+            digest.update(pd.util.hash_pandas_object(sample, index=False).values.tobytes())
+        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+        self.db_path = CHROMA_DIR / f"jobs-{digest.hexdigest()[:16]}.sqlite3"
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+
+        rebuild = True
+        try:
+            stored_count = self.conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            rebuild = stored_count != len(sql_df)
+        except sqlite3.Error:
+            pass
+        if rebuild:
+            sql_df.to_sql("jobs", self.conn, index=False, if_exists="replace")
+            self.conn.commit()
+
+        self._has_dump_col = "_dump_id" in sql_columns
+        self._columns      = set(sql_columns)
         # Always use INTERNAL_MODEL for SQL generation regardless of user selection
         self._client, self._model = make_client(INTERNAL_MODEL)
         # Build schema once from the actual data — fully dynamic

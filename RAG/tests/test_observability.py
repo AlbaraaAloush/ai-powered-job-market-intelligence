@@ -61,3 +61,14 @@ def test_trace_llm_call_degrades_if_start_observation_raises(monkeypatch):
     # Must not propagate the Langfuse-side error into the caller's LLM call.
     with observability.trace_llm_call("chat_completion"):
         pass
+
+
+def test_rag_trace_always_has_feedback_id_without_langfuse(monkeypatch):
+    monkeypatch.setattr(observability, "_langfuse_client", lambda: None)
+    with observability.trace_rag_request(
+        question="What skills are required?",
+        session_id="anonymous-session",
+        model="fanar/Fanar-C-1-8.7B",
+        metadata={},
+    ) as trace:
+        assert len(trace.trace_id) == 32
