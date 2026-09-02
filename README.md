@@ -143,9 +143,9 @@ no Python backend, database, Qdrant, Docker, or AI API key.
 
 | Role | Contributor |
 |---|---|
-| RAG System, Pipeline, UI, Evaluation | Mohammad Faiz Jabir |
+| RAG System, Pipeline, UI, Evaluation | Faiz Jabir |
 | Data Collection & Preprocessing | Albaraa |
-| Benchmark Design & Validation | Mentor / Supervisor |
+| Front-End |Yahya |
 | Supervision | Dr. Hamdy |
 
-**Institution:** Hamad Bin Khalifa University (HBKU) — QCRI Internship 2026
+**Institution:** Hamad Bin Khalifa University (HBKU) — QCRI Summer Internship 2026
