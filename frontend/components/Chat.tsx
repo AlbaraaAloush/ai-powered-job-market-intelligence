@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { createSession, clearSession, streamChat, submitFeedback } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n";
 import { Message, RetrievalInfo } from "@/lib/types";
@@ -32,6 +33,43 @@ function containsArabic(value: string): boolean {
   return /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]/.test(value);
 }
 
+function EvidenceIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3.25 2.75h9.5v10.5h-9.5z" />
+      <path d="M5.5 5.25h5M5.5 8h5M5.5 10.75h3.25" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={open ? "is-open" : undefined}>
+      <path d="m4.5 6.25 3.5 3.5 3.5-3.5" />
+    </svg>
+  );
+}
+
+function FeedbackIcon({ helpful }: { helpful: boolean }) {
+  return (
+    <svg viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        d={helpful
+          ? "M6.5 15H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1h2.5m0 7.5h6.18a1.5 1.5 0 0 0 1.46-1.16l1.15-5A1.5 1.5 0 0 0 13.83 7H11l.45-2.12A1.55 1.55 0 0 0 9.93 3H9.5L6.5 7.5V15Z"
+          : "M6.5 3H4a1 1 0 0 0-1 1v5.5a1 1 0 0 0 1 1h2.5m0-7.5h6.18a1.5 1.5 0 0 1 1.46 1.16l1.15 5A1.5 1.5 0 0 1 13.83 11H11l.45 2.12A1.55 1.55 0 0 1 9.93 15H9.5l-3-4.5V3Z"}
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m3.25 8.25 3 3 6.5-6.5" />
+    </svg>
+  );
+}
+
 // Evidence is written for researchers, not retrieval engineers. Raw vector,
 // BM25, RRF, reranker, prompt, and SQL diagnostics remain server-side.
 function EvidencePanel({ info, arabic }: { info: RetrievalInfo; arabic: boolean }) {
@@ -50,11 +88,11 @@ function EvidencePanel({ info, arabic }: { info: RetrievalInfo; arabic: boolean 
         aria-expanded={open}
       >
         <span className="chat-evidence__label">
-          <span aria-hidden>▥</span>
-          <span>{arabic ? "الأدلة والنطاق" : "Evidence & scope"}</span>
-          {total > 0 && <bdi>{total.toLocaleString()} {arabic ? "إعلانًا" : total === 1 ? "posting" : "postings"}</bdi>}
+          <span className="chat-evidence__icon"><EvidenceIcon /></span>
+          <span className="chat-evidence__title">{arabic ? "الأدلة والنطاق" : "Evidence & scope"}</span>
+          {total > 0 && <bdi className="chat-evidence__count">{total.toLocaleString()} {arabic ? "إعلانًا" : total === 1 ? "posting" : "postings"}</bdi>}
         </span>
-        <span aria-hidden>{open ? "−" : "+"}</span>
+        <span className="chat-evidence__chevron"><ChevronIcon open={open} /></span>
       </button>
 
       {open && (
@@ -104,12 +142,13 @@ function BotMessage({
     .trim();
   return (
     <div
-      className="text-sm leading-relaxed"
+      className="chat-answer text-sm leading-relaxed"
       dir="auto"
       lang={containsArabic(content) ? "ar" : undefined}
       style={{ color: "var(--text)" }}
     >
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
           ul: ({ children }) => (
@@ -186,32 +225,19 @@ function BotMessage({
             </blockquote>
           ),
           table: ({ children }) => (
-            <div className="overflow-x-auto my-2">
-              <table
-                className="text-xs w-full border-collapse"
-                style={{ borderColor: "var(--border)" }}
-              >
+            <div className="chat-answer__table-wrap">
+              <table className="chat-answer__table">
                 {children}
               </table>
             </div>
           ),
           th: ({ children }) => (
-            <th
-              className="px-2 py-1 text-left font-semibold border"
-              style={{
-                borderColor: "var(--border)",
-                background: "var(--card-alt)",
-                color: "var(--text)",
-              }}
-            >
+            <th className="chat-answer__table-heading">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td
-              className="px-2 py-1 border"
-              style={{ borderColor: "var(--border)", color: "var(--muted)" }}
-            >
+            <td className="chat-answer__table-cell">
               {children}
             </td>
           ),
@@ -318,16 +344,108 @@ interface Props {
   model: string;
 }
 
+type FeedbackStatus = "idle" | "sending" | "sent" | "error";
+
+const FEEDBACK_COPY = {
+  en: {
+    prompt: "Was this useful?",
+    helpful: "Helpful",
+    notHelpful: "Not helpful",
+    reason: "Reason",
+    chooseReason: "Choose a reason",
+    reasons: ["Incorrect numbers", "Wrong scope or filters", "Irrelevant evidence", "Incomplete answer", "Too slow", "Hard to read"],
+    optionalComment: "Optional comment",
+    commentPlaceholder: "Tell us what should improve",
+    saving: "Saving…",
+    submit: "Submit feedback",
+    cancel: "Cancel",
+    saveHint: "Feedback is saved after you press Submit.",
+    saved: "Feedback saved.",
+    error: "Could not save feedback.",
+  },
+  ar: {
+    prompt: "هل كانت الإجابة مفيدة؟",
+    helpful: "مفيد",
+    notHelpful: "غير مفيد",
+    reason: "السبب",
+    chooseReason: "اختر سببًا",
+    reasons: ["أرقام غير دقيقة", "نطاق أو فلاتر خاطئة", "أدلة غير ذات صلة", "إجابة غير مكتملة", "بطيء جدًا", "صعب القراءة"],
+    optionalComment: "تعليق اختياري",
+    commentPlaceholder: "أخبرنا بما يجب تحسينه",
+    saving: "جارٍ الحفظ…",
+    submit: "إرسال الملاحظة",
+    cancel: "إلغاء",
+    saveHint: "تُحفظ الملاحظة بعد الضغط على إرسال.",
+    saved: "تم حفظ ملاحظتك.",
+    error: "تعذر حفظ الملاحظة.",
+  },
+} as const;
+
+type FeedbackCopy = (typeof FEEDBACK_COPY)[keyof typeof FEEDBACK_COPY];
+
+function FeedbackDetails({
+  copy,
+  reason,
+  comment,
+  status,
+  onReasonChange,
+  onCommentChange,
+  onSubmit,
+  onCancel,
+}: {
+  copy: FeedbackCopy;
+  reason: string;
+  comment: string;
+  status: FeedbackStatus;
+  onReasonChange: (value: string) => void;
+  onCommentChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="answer-feedback__details">
+      <label>{copy.reason}
+        <select value={reason} onChange={(event) => onReasonChange(event.target.value)}>
+          <option value="">{copy.chooseReason}</option>
+          {copy.reasons.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>
+      <label>{copy.optionalComment}
+        <textarea value={comment} maxLength={1000} placeholder={copy.commentPlaceholder} onChange={(event) => onCommentChange(event.target.value)} />
+      </label>
+      <div className="answer-feedback__actions">
+        <button type="button" disabled={!reason || status === "sending"} onClick={onSubmit}>
+          {status === "sending" ? copy.saving : copy.submit}
+        </button>
+        <button type="button" onClick={onCancel}>{copy.cancel}</button>
+      </div>
+      <small>{copy.saveHint}</small>
+    </div>
+  );
+}
+
+function FeedbackResult({ status, copy }: { status: FeedbackStatus; copy: FeedbackCopy }) {
+  if (status === "sent") {
+    return <small className="answer-feedback__saved"><CheckIcon />{copy.saved}</small>;
+  }
+  if (status === "error") {
+    return <small>{copy.error}</small>;
+  }
+  return null;
+}
+
 function AnswerFeedback({ traceId, sessionId, question, answer, arabic }: {
-  traceId: string; sessionId: string; question: string; answer: string; arabic: boolean;
+  traceId: string;
+  sessionId: string;
+  question: string;
+  answer: string;
+  arabic: boolean;
 }) {
   const [choice, setChoice] = useState<boolean | null>(null);
   const [reason, setReason] = useState("");
   const [comment, setComment] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const reasons = arabic
-    ? ["أرقام غير دقيقة", "نطاق أو فلاتر خاطئة", "أدلة غير ذات صلة", "إجابة غير مكتملة", "بطيء جدًا", "صعب القراءة"]
-    : ["Incorrect numbers", "Wrong scope or filters", "Irrelevant evidence", "Incomplete answer", "Too slow", "Hard to read"];
+  const [status, setStatus] = useState<FeedbackStatus>("idle");
+  const copy = FEEDBACK_COPY[arabic ? "ar" : "en"];
 
   async function send(helpful: boolean) {
     setChoice(helpful);
@@ -339,33 +457,32 @@ function AnswerFeedback({ traceId, sessionId, question, answer, arabic }: {
     } catch { setStatus("error"); }
   }
 
+  function cancelFeedback() {
+    setChoice(null);
+    setReason("");
+    setComment("");
+  }
+
   return (
     <div className="answer-feedback" aria-live="polite" dir={arabic ? "rtl" : "ltr"}>
       <div className="answer-feedback__prompt">
-        <span>{arabic ? "هل كانت الإجابة مفيدة؟" : "Was this useful?"}</span>
-        <button type="button" disabled={status === "sent"} aria-label={arabic ? "مفيد" : "Helpful"} aria-pressed={choice === true} onClick={() => void send(true)}>👍</button>
-        <button type="button" disabled={status === "sent"} aria-label={arabic ? "غير مفيد" : "Not helpful"} aria-pressed={choice === false} onClick={() => { setChoice(false); setStatus("idle"); }}>👎</button>
+        <span>{copy.prompt}</span>
+        <button type="button" disabled={status === "sent"} aria-label={copy.helpful} aria-pressed={choice === true} onClick={() => void send(true)}><FeedbackIcon helpful /></button>
+        <button type="button" disabled={status === "sent"} aria-label={copy.notHelpful} aria-pressed={choice === false} onClick={() => { setChoice(false); setStatus("idle"); }}><FeedbackIcon helpful={false} /></button>
       </div>
       {choice === false && status !== "sent" && (
-        <div className="answer-feedback__details">
-          <label>{arabic ? "السبب" : "Reason"}
-            <select value={reason} onChange={(e) => setReason(e.target.value)}>
-              <option value="">{arabic ? "اختر سببًا" : "Choose a reason"}</option>
-              {reasons.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label>{arabic ? "تعليق اختياري" : "Optional comment"}
-            <textarea value={comment} maxLength={1000} placeholder={arabic ? "أخبرنا بما يجب تحسينه" : "Tell us what should improve"} onChange={(e) => setComment(e.target.value)} />
-          </label>
-          <div className="answer-feedback__actions">
-            <button type="button" disabled={!reason || status === "sending"} onClick={() => void send(false)}>{status === "sending" ? (arabic ? "جارٍ الحفظ…" : "Saving…") : (arabic ? "إرسال الملاحظة" : "Submit feedback")}</button>
-            <button type="button" onClick={() => { setChoice(null); setReason(""); setComment(""); }}>{arabic ? "إلغاء" : "Cancel"}</button>
-          </div>
-          <small>{arabic ? "تُحفظ الملاحظة بعد الضغط على إرسال." : "Feedback is saved after you press Submit."}</small>
-        </div>
+        <FeedbackDetails
+          copy={copy}
+          reason={reason}
+          comment={comment}
+          status={status}
+          onReasonChange={setReason}
+          onCommentChange={setComment}
+          onSubmit={() => void send(false)}
+          onCancel={cancelFeedback}
+        />
       )}
-      {status === "sent" && <small className="answer-feedback__saved">✓ {arabic ? "تم حفظ ملاحظتك." : "Feedback saved."}</small>}
-      {status === "error" && <small>{arabic ? "تعذر حفظ الملاحظة." : "Could not save feedback."}</small>}
+      <FeedbackResult status={status} copy={copy} />
     </div>
   );
 }
