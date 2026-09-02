@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+import sql_engine
 from sql_engine import SQLEngine
 
 
@@ -20,11 +21,27 @@ def engine():
         "_country":     ["Qatar", "Qatar", "UAE", "UAE"],
         "_timeline":    ["May 2026"] * 4,
     })
-    return SQLEngine(df)
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=None)),
+    )
+    return SQLEngine(df, client=client)
 
 
 def _fake_llm_response(text: str):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+
+
+def test_engine_initialization_defers_llm_client(monkeypatch):
+    """Offline SQL operations must not require an API key or client."""
+    def fail_if_called(_model):
+        pytest.fail("LLM client was created during SQLEngine initialization")
+
+    monkeypatch.setattr(sql_engine, "make_client", fail_if_called)
+    instance = SQLEngine(pd.DataFrame({"job_title": ["Engineer"]}))
+    try:
+        assert instance._client is None
+    finally:
+        instance.conn.close()
 
 
 def test_scope_query_unchanged_without_filters(engine):

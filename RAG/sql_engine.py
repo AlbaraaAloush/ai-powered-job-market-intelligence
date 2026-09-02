@@ -149,7 +149,7 @@ AVAILABLE VALUES in the database  (total rows: {total:,}):
 
 
 class SQLEngine:
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, df: pd.DataFrame, client=None):
         # check_same_thread=False is safe here: all queries are read-only SELECT statements,
         # and SQLite allows concurrent reads from multiple threads without data corruption.
         sql_columns = [column for column in _SQL_COLUMNS if column in df.columns]
@@ -194,8 +194,10 @@ class SQLEngine:
 
         self._has_dump_col = "_dump_id" in sql_columns
         self._columns      = set(sql_columns)
-        # Always use INTERNAL_MODEL for SQL generation regardless of user selection
-        self._client, self._model = make_client(INTERNAL_MODEL)
+        # Defer credential validation until SQL generation is actually needed.
+        # Scope rewriting and execution tests are deliberately offline.
+        self._client = client
+        self._model = INTERNAL_MODEL
         # Build schema once from the actual data — fully dynamic
         self._system = _build_system(df)
 
@@ -281,6 +283,8 @@ class SQLEngine:
         )
 
     def _to_sql(self, question: str) -> str:
+        if self._client is None:
+            self._client, self._model = make_client(INTERNAL_MODEL)
         resp = self._client.chat.completions.create(
             model=self._model,
             messages=[
