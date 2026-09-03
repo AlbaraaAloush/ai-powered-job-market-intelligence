@@ -14,16 +14,8 @@ const ThemeContext = createContext<ThemeContextValue>({
   toggleTheme: () => {},
 });
 
-const faviconByTheme: Record<Theme, string> = {
-  light: '/brand/mihna-favicon-light.png',
-  dark: '/brand/mihna-favicon-dark.png',
-};
-
 function applyDocumentTheme(theme: Theme) {
   document.documentElement.setAttribute('data-theme', theme);
-
-  const favicon = document.getElementById('mihna-favicon') as HTMLLinkElement | null;
-  if (favicon) favicon.href = faviconByTheme[theme];
 }
 
 /* SSR + initial client render both produce theme='light' so hydration

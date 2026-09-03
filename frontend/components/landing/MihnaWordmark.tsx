@@ -1,11 +1,9 @@
 'use client';
 
-import Image from 'next/image';
 import { useLanguage } from '@/lib/i18n';
 
-/* The symbol is rendered in both theme variants so the server and the
-   first client render stay identical. CSS selects the visible asset
-   from html[data-theme], matching the pre-paint theme initializer. */
+/* The mark uses the supplied vector as a CSS mask. This keeps its geometry
+   crisp at every size while the surface color follows the active theme. */
 export function MihnaWordmark({
   size = 32,
   showWord = true,
@@ -26,24 +24,7 @@ export function MihnaWordmark({
         aria-hidden="true"
         className="m-brand-mark"
         style={{ width: size, height: size }}
-      >
-        <Image
-          src="/brand/mihna-mark-light.png"
-          alt=""
-          width={size}
-          height={size}
-          loading="eager"
-          className="m-brand-mark__image m-brand-mark__image--light"
-        />
-        <Image
-          src="/brand/mihna-mark-dark.png"
-          alt=""
-          width={size}
-          height={size}
-          loading="eager"
-          className="m-brand-mark__image m-brand-mark__image--dark"
-        />
-      </span>
+      />
       {showWord && (
         <span
           className="m-display"

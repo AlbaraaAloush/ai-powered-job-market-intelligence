@@ -67,16 +67,6 @@ const initScript = `
     if (theme !== 'light' && theme !== 'dark') theme = 'light';
     document.documentElement.setAttribute('data-theme', theme);
 
-    var favicon = document.getElementById('mihna-favicon');
-    if (favicon) {
-      favicon.setAttribute(
-        'href',
-        theme === 'dark'
-          ? '/brand/mihna-favicon-dark.png'
-          : '/brand/mihna-favicon-light.png'
-      );
-    }
-
     var lang = localStorage.getItem('lang');
     if (lang !== 'ar' && lang !== 'en') lang = 'en';
     document.documentElement.lang = lang;
@@ -97,11 +87,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <head>
         <link
-          id="mihna-favicon"
           rel="icon"
-          type="image/png"
-          sizes="128x128"
-          href="/brand/mihna-favicon-light.png"
+          type="image/svg+xml"
+          href="/brand/mihna-mark.svg"
         />
         <link
           rel="apple-touch-icon"

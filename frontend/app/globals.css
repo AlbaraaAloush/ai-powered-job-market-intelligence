@@ -18,6 +18,7 @@
   --m-ink-2:        oklch(0.42  0.015 220);        /* secondary text */
   --m-ink-3:        oklch(0.62  0.012 220);        /* tertiary / placeholders */
   --m-primary:      oklch(0.30  0.085 220);        /* deep instrument-blue */
+  --m-brand:        #0f3b4c;                       /* supplied Mihna mark */
   --m-primary-soft: oklch(0.94  0.020 220);        /* tinted background of primary */
   --m-on-primary:   oklch(0.97  0.005 60);         /* warm-near-white on dark blue */
   --m-accent:       oklch(0.66  0.135 60);         /* warm amber/ochre patina */
@@ -46,6 +47,7 @@
   --m-ink-2:        oklch(0.72  0.012 220);
   --m-ink-3:        oklch(0.52  0.012 220);
   --m-primary:      oklch(0.78  0.075 220);        /* lighter steel-blue in dark */
+  --m-brand:        #bdd5dc;
   --m-primary-soft: oklch(0.22  0.022 220);
   --m-on-primary:   oklch(0.10  0.005 220);
   --m-accent:       oklch(0.78  0.130 60);
@@ -165,34 +167,13 @@ button:disabled,
 
 .m-theme-toggle:active { transform: scale(0.96); }
 
-/* Theme-aware Data Fold brand mark. Both images remain in the DOM so
-   the initial server markup is stable; html[data-theme] controls only
-   presentation and matches the pre-paint theme script. */
+/* Theme-aware rendering of the supplied vector mark. */
 .m-brand-mark {
-  position: relative;
   display: inline-block;
   flex: 0 0 auto;
-}
-
-.m-brand-mark__image {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-[data-theme="light"] .m-brand-mark__image--light,
-[data-theme="dark"] .m-brand-mark__image--dark {
-  opacity: 1;
-  visibility: visible;
-}
-
-[data-theme="light"] .m-brand-mark__image--dark,
-[data-theme="dark"] .m-brand-mark__image--light {
-  opacity: 0;
-  visibility: hidden;
+  background-color: var(--m-brand);
+  -webkit-mask: url('/brand/mihna-mark.svg') center / contain no-repeat;
+  mask: url('/brand/mihna-mark.svg') center / contain no-repeat;
 }
 
 /* ── Mihna-only utilities ───────────────────────────────────────────────── */
