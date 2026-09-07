@@ -136,12 +136,42 @@ _TECHNICAL_SKILLS = {
     "Data Analysis", "Data Visualization", "Oracle", "Cloud Computing", "AWS",
     "Azure", "Git", "Docker", "TensorFlow", "PyTorch", "Statistics", "Tableau",
     "Natural Language Processing", "NLP", "Deep Learning", "Java", "JavaScript",
+    "Network Security", "Cybersecurity", "Information Security", "Penetration Testing",
+    "Linux", "Firewalls", "SIEM", "Incident Response", "Risk Management",
 }
 _SOFT_SKILLS = {
     "Communication", "Leadership", "Problem Solving", "Collaboration", "Teamwork",
     "Attention To Detail", "Time Management", "Critical Thinking", "Negotiation",
     "Organizational Skills", "Stakeholder Management",
 }
+
+# Keep this deliberately small and explicit.  These are programming languages,
+# not the wider set of technical tools which can also appear in ``skills``.
+_PROGRAMMING_LANGUAGES = {
+    "Python", "SQL", "Java", "JavaScript", "TypeScript", "C++", "C#", "C",
+    "R", "PHP", "Ruby", "Go", "Scala", "Kotlin", "Swift", "MATLAB",
+}
+_QUERY_SKILLS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("Python", re.compile(r"\bpython\b", re.I)),
+    ("SQL", re.compile(r"\bsql\b", re.I)),
+    ("Power BI", re.compile(r"\bpower\s*bi\b", re.I)),
+    ("Excel", re.compile(r"\b(?:microsoft |ms )?excel\b", re.I)),
+    ("JavaScript", re.compile(r"\bjavascript\b", re.I)),
+    ("TypeScript", re.compile(r"\btypescript\b", re.I)),
+    ("Java", re.compile(r"\bjava\b", re.I)),
+    ("C++", re.compile(r"\bc\+\+\b", re.I)),
+    ("C#", re.compile(r"\bc#\b", re.I)),
+    ("R", re.compile(r"\bR language\b", re.I)),
+)
+
+
+def _mentioned_skills(text: str) -> list[str]:
+    """Return explicitly named skills in prompt order, without duplicates."""
+    found: list[str] = []
+    for name, pattern in _QUERY_SKILLS:
+        if pattern.search(text) and name not in found:
+            found.append(name)
+    return found
 
 
 def canonical_skill(value: str) -> str:
@@ -264,6 +294,12 @@ def _role_scope(df: pd.DataFrame, question: str, history: list[dict] | None) -> 
         return df[titles.str.contains(_DATA_ROLE_RE, na=False)], "وظائف البيانات" if arabic else "data roles"
     if re.search(r"\b(ai|artificial intelligence|machine learning)\b|الذكاء الاصطناعي|تعلم الآلة|التعلم الآلي", text, re.I):
         return df[titles.str.contains(_AI_ROLE_RE, na=False)], "وظائف الذكاء الاصطناعي وتعلم الآلة" if arabic else "AI and machine-learning roles"
+    if re.search(r"\b(?:cybersecurity|cyber security|information security|security analyst|security engineer|soc analyst)\b|الأمن السيبراني|الأمن المعلوماتي", text, re.I):
+        mask = titles.str.contains(r"cyber\s*security|information security|security (?:analyst|engineer)|soc analyst", case=False, regex=True, na=False)
+        return df[mask], "وظائف الأمن السيبراني" if arabic else "cybersecurity roles"
+    if re.search(r"\b(?:software engineering|software engineer|software development|software developer|programming roles?)\b|هندسة البرمجيات|تطوير البرمجيات|مبرمج", text, re.I):
+        mask = titles.str.contains(r"software (?:engineer|developer)|programmer", case=False, regex=True, na=False)
+        return df[mask], "وظائف هندسة البرمجيات" if arabic else "software engineering roles"
     if re.search(r"\bengineering jobs?\b|\bengineer(?:ing|s)? roles?\b|وظائف هندس|مهندس", text, re.I):
         sector = df.get("_sector_norm", pd.Series("", index=df.index)).fillna("").astype(str)
         mask = titles.str.contains(r"\bengineer(?:ing)?\b", case=False, regex=True, na=False) | sector.str.contains(
@@ -470,6 +506,37 @@ def _skills_answer(scoped: pd.DataFrame, question: str, history: list[dict] | No
     q = question.casefold()
     arabic = _is_arabic(question)
     graduate = bool(re.search(r"graduate|entry.level|beginner|should i learn|must i have|roadmap|خريج|حديث التخرج", q))
+    named_skills = _mentioned_skills(question)
+
+    # A comparison that explicitly names skills must compare those skills, not
+    # fall through to the generic country-volume comparison below.
+    if named_skills and re.search(r"\b(?:compare|comparison|across|by country|each country)\b|قارن|مقارنة|بين الدول", q) and "_country" in roles.columns:
+        country_order = sorted(str(value) for value in roles["_country"].dropna().unique())
+        counters = {country: _skills_by_posting(group) for country, group in roles.groupby("_country")}
+        lines = [
+            f"## Demand for named skills in {role_label}", "",
+            "Counts show postings that mention each requested skill; one posting can mention more than one skill.", "",
+            "| Skill | " + " | ".join(country_order) + " | Total |",
+            "|---|" + "|".join("---:" for _ in country_order) + "|---:|",
+        ]
+        for skill in named_skills:
+            values = [counters.get(country, Counter()).get(skill, 0) for country in country_order]
+            lines.append(f"| {skill} | " + " | ".join(f"{value:,}" for value in values) + f" | {sum(values):,} |")
+        lines += ["", f"*Scope: {scope}*"]
+        return _result("\n".join(lines), "named-skill-comparison", scope, roles, _job_evidence(roles))
+
+    if re.search(r"\b(?:programming languages?|coding languages?)\b|لغات البرمجة", q):
+        language_rows = [row for row in _top_skill_rows(roles, 80) if row[0] in _PROGRAMMING_LANGUAGES]
+        lines = ([f"## أكثر لغات البرمجة ورودًا في {role_label}", "", f"استنادًا إلى **{len(roles):,} إعلانًا مطابقًا**:", ""]
+                 if arabic else
+                 [f"## Most requested programming languages in {role_label}", "", f"Based on **{len(roles):,} matching postings**:", ""])
+        if language_rows:
+            for index, (skill, count, pct) in enumerate(language_rows[:10], 1):
+                lines.append(f"{index}. **{skill}** — {count:,} postings ({pct}%)")
+        else:
+            lines.append("No programming-language mentions were found in the selected role scope.")
+        lines += ["", f"*Scope: {scope}*"]
+        return _result("\n".join(lines), "programming-language-ranking", scope, roles, _job_evidence(roles))
 
     if re.search(r"common across|all three countries|each country|مشتركة بين|جميع الدول|كل دولة", q) and "_country" in scoped.columns:
         per_country = {
@@ -517,6 +584,12 @@ def _skills_answer(scoped: pd.DataFrame, question: str, history: list[dict] | No
         soft = [row for row in rows if row[0] in _SOFT_SKILLS]
         if len(technical) < 5:
             technical = [row for row in _top_skill_rows(roles, 40) if row[0] in _TECHNICAL_SKILLS][:6]
+        # New/emerging role families (notably cybersecurity) can contain
+        # legitimate tools absent from the compact allowlist above.  Never
+        # render an empty recommendation section: use the role's most common
+        # non-soft skills as an evidence-backed fallback.
+        if not technical:
+            technical = [row for row in _top_skill_rows(roles, 40) if row[0] not in _SOFT_SKILLS][:6]
         lines = (["## المهارات التي تستحق الأولوية", "",
                   f"إذا كنت حديث التخرج وتستهدف **{role_label}**، فابدأ بهذه المهارات المدعومة ببيانات الإعلانات:", ""]
                  if arabic else
@@ -618,8 +691,12 @@ def build_fast_answer(
 
     # Exact counts and distributions.
     count_request = bool(re.search(r"how many|\bcount\b|\btotal\b|number of|كم|عدد", q))
-    ranking_request = bool(re.search(r"most|largest|top|أكبر|أكثر|الأكثر|ترتيب", q))
-    if count_request and not (ranking_request and re.search(r"sector|industry|قطاع|صناعة", q)):
+    ranking_request = bool(re.search(r"most|largest|highest|leading|top|أكبر|أكثر|الأكثر|ترتيب", q))
+    sector_ranking_request = bool(
+        re.search(r"sector|industry|قطاع|صناعة", q)
+        and re.search(r"which|highest|most|leading|top|أكبر|أكثر|الأكثر|ترتيب", q)
+    )
+    if count_request and not sector_ranking_request:
         if "compan" in q or "شركة" in q or "شركات" in q:
             count = scoped.get("company", pd.Series(dtype=str)).dropna().replace("", pd.NA).nunique()
             answer = (f"## الشركات الممثلة\n\nتظهر **{count:,} شركة** في النطاق المحدد.\n\n*النطاق: {scope}*"
@@ -741,8 +818,20 @@ def build_fast_answer(
         lines += ["", f"*النطاق: {scope}*" if arabic else f"*Scope: {scope}*"]
         return _result("\n".join(lines), "sector-ranking", scope, scoped)
 
-    # Skill questions and graduate recommendations.
-    if re.search(r"skill|learn|roadmap|recent ai|computer science|مهار|خريج|ماذا أتعلم", q):
+    # Skill questions and graduate recommendations. A request to *find jobs*
+    # is handled by the lexical job-search route below even if it names skills.
+    job_search_request = bool(
+        (re.search(r"^(?:find|show|list|search for)\b", q) and re.search(r"\b(job|jobs|role|roles|positions?)\b", q))
+        or (re.search(r"^(?:اعثر|ابحث|أظهر|اعرض|اذكر)", q) and re.search(r"وظائف|وظيفة|أدوار|مناصب", q))
+    )
+    role_requirements = bool(
+        re.search(r"requirement|qualification|متطلبات|مؤهلات", q)
+        and re.search(r"data analyst|data scientist|data engineer|cybersecurity|cyber security|محلل بيانات|عالم بيانات|الأمن السيبراني", q)
+    )
+    if not job_search_request and (
+        re.search(r"skill|learn|roadmap|recent ai|computer science|programming languages?|python|sql|power\s*bi|excel|javascript|typescript|مهار|خريج|ماذا أتعلم", q)
+        or role_requirements
+    ):
         return _skills_answer(scoped, clean, history, scope)
 
     # Country-level demand comparison.
@@ -781,14 +870,17 @@ def build_fast_answer(
 
     # Strict lexical job discovery prevents an unrelated list from being shown
     # merely because the retriever was asked to fill twelve result slots.
-    if ((re.search(r"^(?:find|show|list|search for)\b", q) and re.search(r"\b(job|jobs|role|roles|positions?)\b", q))
-            or (re.search(r"^(?:اعثر|ابحث|أظهر|اعرض|اذكر)", q) and re.search(r"وظائف|وظيفة|أدوار|مناصب", q))):
+    if job_search_request:
         stop = {
             "find", "show", "list", "search", "for", "job", "jobs", "role", "roles",
             "position", "positions", "in", "the", "a", "an", "requiring", "require",
-            "with", "that", "mentioning", "qatar", "uae", "saudi", "arabia", "may", "june",
+            "with", "that", "mentioning", "and", "or", "qatar", "uae", "saudi", "arabia", "may", "june",
         }
-        terms = [token for token in re.findall(r"[a-zA-Z][a-zA-Z+#.-]{1,}", q) if token not in stop]
+        terms = [
+            token.rstrip(".-")
+            for token in re.findall(r"[a-zA-Z][a-zA-Z+#.-]{1,}", q)
+            if token.rstrip(".-") not in stop
+        ]
         haystack = (
             scoped.get("job_title", pd.Series("", index=scoped.index)).fillna("").astype(str) + " " +
             scoped.get("skills", pd.Series("", index=scoped.index)).fillna("").astype(str) + " " +

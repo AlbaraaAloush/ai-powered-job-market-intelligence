@@ -312,3 +312,90 @@ def test_deterministic_answer_respects_explicit_dashboard_filters():
     assert result is not None
     assert "**4**" in result["answer"]
     assert "4 postings" in result["scope"]
+
+
+def test_sector_question_with_highest_number_routes_to_sector_ranking():
+    result = build_fast_answer(_df(), "Which sectors have the highest number of job openings in Saudi Arabia?")
+
+    assert result is not None
+    assert result["intent"] == "sector-ranking"
+    assert "| Sector | Postings |" in result["answer"]
+    assert "Construction" in result["answer"]
+
+
+def test_named_skill_comparison_is_not_reduced_to_country_volume():
+    result = build_fast_answer(
+        _df(),
+        "Compare demand for Python, SQL, Power BI, and Excel across GCC countries.",
+    )
+
+    assert result is not None
+    assert result["intent"] == "named-skill-comparison"
+    assert "| Skill | Qatar | Saudi Arabia | UAE | Total |" in result["answer"]
+    assert "| Python |" in result["answer"]
+    assert "| Power BI |" in result["answer"]
+
+
+def test_programming_languages_are_ranked_for_software_roles():
+    result = build_fast_answer(
+        _df(),
+        "What programming languages are most requested for software engineering roles?",
+    )
+
+    assert result is not None
+    assert result["intent"] == "programming-language-ranking"
+    assert "software engineering roles" in result["answer"]
+    assert "Python" in result["answer"]
+    assert "()" not in result["answer"]
+
+
+def test_cybersecurity_skill_guidance_scopes_to_cybersecurity_roles():
+    frame = pd.concat([
+        _df(),
+        pd.DataFrame([{
+            "job_title": "Cybersecurity Analyst", "company": "SecureCo", "_country": "Qatar",
+            "_timeline": "Jun 2026", "_sector_norm": "Technology", "category": "Technology",
+            "skills": "Python; SQL; Network Security", "_dump_id": "q_jun", "salary": "",
+            "description": "", "url": "", "_career_norm": "Mid-Level",
+        }]),
+    ], ignore_index=True)
+
+    result = build_fast_answer(frame, "What skills should I learn for cybersecurity roles in Qatar?")
+
+    assert result is not None
+    assert result["intent"] == "career-guidance"
+    assert "cybersecurity roles" in result["answer"]
+    assert "1 matching postings" in result["answer"]
+    assert "1. **" in result["answer"]
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Find jobs requiring Python and SQL in Qatar.",
+        "ابحث عن وظائف تتطلب Python وSQL في قطر.",
+    ],
+)
+def test_job_search_with_named_skills_is_not_swallowed_by_skill_ranking(prompt):
+    result = build_fast_answer(_df(), prompt)
+
+    assert result is not None
+    assert result["intent"] == "job-search"
+
+
+def test_english_job_search_ignores_boolean_connector_words():
+    result = build_fast_answer(_df(), "Find jobs requiring Python and SQL in Qatar.")
+
+    assert result is not None
+    assert result["intent"] == "job-search"
+    assert result["evidence_count"] == 1
+    assert "Matching vacancies" in result["answer"]
+
+
+def test_generic_qualification_question_uses_semantic_rag_not_skill_ranking():
+    result = build_fast_answer(
+        _df(),
+        "ما المؤهلات التي يذكرها أصحاب العمل لوظائف خدمة العملاء الناطقة بالعربية؟",
+    )
+
+    assert result is None
