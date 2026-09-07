@@ -11,6 +11,7 @@ import Chat from '@/components/Chat';
 import { useLanguage } from '@/lib/i18n';
 import { useDashboardI18n } from '@/lib/dashboard-i18n';
 import { AppHeader } from './AppHeader';
+import { ALL_DATASETS, selectDatasetIds, type DatasetScope } from '@/lib/filters';
 
 type WorkspaceMode = 'dashboard' | 'chat';
 
@@ -26,6 +27,7 @@ export function Workspace({
   const [dumps, setDumps] = useState<DumpInfo[]>([]);
   const [timelines, setTimelines] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [datasetScope, setDatasetScope] = useState<DatasetScope>(ALL_DATASETS);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [model, setModel] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -70,26 +72,30 @@ export function Workspace({
   }, [mode, models.length]);
 
   function toggleDump(id: string) {
+    setDatasetScope(ALL_DATASETS);
     setSelected((current) => (
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
     ));
   }
 
   function handleTimelineSelect(timeline: string) {
-    setSelected(
-      timeline === 'All'
-        ? dumps.map((dump) => dump._dump_id)
-        : dumps.filter((dump) => dump._timeline === timeline).map((dump) => dump._dump_id),
-    );
+    changeDatasetScope({ timeline });
   }
 
   function handleCountrySelect(country: string) {
-    setSelected(
-      country === 'All'
-        ? dumps.map((dump) => dump._dump_id)
-        : dumps.filter((dump) => dump._country === country).map((dump) => dump._dump_id),
-    );
+    changeDatasetScope({ country });
   }
+
+  function handleSourceSelect(source: string) {
+    changeDatasetScope({ source });
+  }
+
+  function changeDatasetScope(change: Partial<DatasetScope>) {
+    const next = { ...datasetScope, ...change };
+    setDatasetScope(next);
+    setSelected(selectDatasetIds(dumps, next));
+  }
+
 
   const dashboardScope = useMemo(() => {
     const selectedDumps = dumps.filter((dump) => selected.includes(dump._dump_id));
@@ -102,12 +108,12 @@ export function Workspace({
     });
 
     return {
-      activeTimeline: selectedTimelines.length === 1 ? selectedTimelines[0] : 'All',
-      activeCountry: selectedCountries.length === 1 ? selectedCountries[0] : 'All',
+      activeTimeline: datasetScope.timeline !== 'All' ? datasetScope.timeline : selectedTimelines.length === 1 ? selectedTimelines[0] : 'All',
+      activeCountry: datasetScope.country !== 'All' ? datasetScope.country : selectedCountries.length === 1 ? selectedCountries[0] : 'All',
       allCountries,
       allCountryCounts,
     };
-  }, [dumps, selected]);
+  }, [dumps, selected, datasetScope]);
 
   return (
     <div className="app-workspace" dir={dir}>
@@ -148,8 +154,10 @@ export function Workspace({
                   isOpen
                   showModel={mode === 'chat'}
                   onToggle={toggleDump}
-                  onSelectAll={() => setSelected(dumps.map((dump) => dump._dump_id))}
-                  onClearAll={() => setSelected([])}
+                  onSelectAll={() => { setDatasetScope(ALL_DATASETS); setSelected(dumps.map((dump) => dump._dump_id)); }}
+                  onClearAll={() => { setDatasetScope(ALL_DATASETS); setSelected([]); }}
+                  onSelectSource={handleSourceSelect}
+                  activeSource={datasetScope.source}
                   onModelChange={setModel}
                 />
               </motion.div>
@@ -175,9 +183,11 @@ export function Workspace({
               allCountryCounts={dashboardScope.allCountryCounts}
               activeCountry={dashboardScope.activeCountry}
               onCountrySelect={handleCountrySelect}
+              filters={{}}
+              onFilterChange={() => {}}
             />
           ) : (
-            <Chat selectedDumps={selected} model={model} />
+            <Chat key={JSON.stringify(selected)} selectedDumps={selected} model={model} filters={{}} />
           )}
           {children}
         </main>

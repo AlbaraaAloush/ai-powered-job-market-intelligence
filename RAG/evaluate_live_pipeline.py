@@ -36,9 +36,10 @@ def stream_answer(
         "question": question,
         "session_id": session_id,
         "model": model,
-        "dump_ids": dump_ids or [],
         "filters": {},
     }
+    if dump_ids is not None:
+        payload['dump_ids'] = dump_ids
     answer: list[str] = []
     retrieval: dict[str, Any] = {}
     started = time.perf_counter()
@@ -120,7 +121,7 @@ def validate(case: dict[str, Any], result: dict[str, Any], total_jobs: int) -> l
             failures.append("missing evidence examples")
     if case.get("expect_abstention"):
         abstention_terms = (
-            "no data", "outside the dataset scope", "cannot give a reliable answer",
+            "no data", "outside the dataset scope", "outside the selected job-market dataset", "cannot give a reliable answer",
             "insufficient evidence", "لا توجد بيانات", "لا توجد أدلة كافية",
             "خارج نطاق البيانات", "لا أستطيع", "لا يمكنني",
         )
@@ -142,6 +143,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path(__file__).parent / "reports" / "live_evaluation.json")
     parser.add_argument("--ids", nargs="*", help="Run only selected benchmark case IDs")
     parser.add_argument("--timeout", type=float, default=45)
+    parser.add_argument("--delay", type=float, default=0.0, help="Delay between cases (use 2.1 to stay below the API's 30/minute limit)")
     args = parser.parse_args()
 
     benchmark = json.loads(args.benchmark.read_text(encoding="utf-8"))
@@ -155,6 +157,8 @@ def main() -> None:
     sessions: dict[str, str] = {}
     rows: list[dict[str, Any]] = []
     for index, case in enumerate(cases, 1):
+        if index > 1 and args.delay > 0:
+            time.sleep(args.delay)
         conversation = case.get("conversation", case["id"])
         session_id = sessions.setdefault(conversation, uuid.uuid4().hex)
         try:

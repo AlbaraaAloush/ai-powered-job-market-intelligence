@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:locales": "node scripts/check-dashboard-locales.mjs"
+    "test:locales": "node scripts/check-dashboard-locales.mjs",
+    "test:filters": "node scripts/test-filter-flow.cjs"
   },
   "dependencies": {
     "motion": "^12.40.0",

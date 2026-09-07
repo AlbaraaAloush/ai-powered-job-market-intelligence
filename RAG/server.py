@@ -72,7 +72,7 @@ from data_loader import (
     parse_salary_mid, SALARY_BUCKET_BINS, SALARY_BUCKET_LABELS,
 )
 from dashboard_service import AGGREGATION_DIMENSIONS, DashboardDataService, DashboardQuery
-from filter_registry import translate_explicit_filters
+from filter_registry import FILTER_REGISTRY, translate_explicit_filters
 from analytics import AnalyticsEngine
 from session import PersistentSessionStore, SessionStore
 from storage import ApplicationDatabase
@@ -459,6 +459,8 @@ class ChatRequest(BaseModel):
         if len(v) > MAX_FILTERS:
             raise ValueError(f"too many filters (max {MAX_FILTERS})")
         for key, value in v.items():
+            if key not in FILTER_REGISTRY:
+                raise ValueError(f"Unsupported job filter: {key}")
             if len(key) > MAX_FILTER_KEY_LEN or not _IDENTIFIER_RE.match(key):
                 raise ValueError("filter keys must be short alphanumeric identifiers")
             if not isinstance(value, str) or len(value) > MAX_FILTER_VALUE_LEN:
@@ -1250,7 +1252,14 @@ async def chat(request: Request, body: ChatRequest):
         )
 
     model    = body.model if body.model in AVAILABLE_MODELS.values() else CHAT_MODEL
+    # An explicitly empty UI selection is never permission to search all data.
+    if "dump_ids" in body.model_fields_set and not body.dump_ids:
+        raise HTTPException(status_code=400, detail="Select at least one dataset before asking a question.")
     dump_ids = [d for d in body.dump_ids if d] or None
+    if dump_ids:
+        known_dumps = set(_state["df"]["_dump_id"].unique())
+        if set(dump_ids) - known_dumps:
+            raise HTTPException(status_code=400, detail="Unknown dataset selection. Refresh the dashboard.")
     explicit_filters = {k: v for k, v in body.filters.items() if v and str(v).strip()}
     language = "ar" if re.search(r"[\u0600-\u06ff]", body.question) else "en"
     usage_base = {

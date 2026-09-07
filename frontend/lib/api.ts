@@ -6,6 +6,7 @@ import {
   downloadStaticExport, fetchStaticDashboard, fetchStaticDatasets,
   fetchStaticPostings, preloadStaticDashboard,
 } from './static-dashboard';
+import type { JobFilters } from './filters';
 
 // An explicitly empty value means same-origin (the nginx production stack).
 // Only an undefined value falls back to the local development backend.
@@ -16,7 +17,7 @@ export async function fetchDatasets(): Promise<DatasetsResponse> {
   return datasets;
 }
 
-export interface DashboardParams {
+export interface DashboardParams extends JobFilters {
   dumps: string[];
   country?: string;
   sector?: string;
@@ -90,11 +91,12 @@ export async function* streamChat(
   model: string,
   dumpIds: string[],
   signal?: AbortSignal,
+  filters: JobFilters = {},
 ): AsyncGenerator<StreamEvent> {
   const r = await fetch(`${API}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, session_id: sessionId, model, dump_ids: dumpIds }),
+    body: JSON.stringify({ question, session_id: sessionId, model, dump_ids: dumpIds, filters }),
     signal,
   });
 

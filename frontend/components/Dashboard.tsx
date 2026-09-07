@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchDashboard } from '@/lib/api';
 import { downloadDashboardExport } from '@/lib/api';
 import { DashboardData, DashboardDimension, DashboardScope } from '@/lib/types';
+import { postingScope, type JobFilters } from '@/lib/filters';
 import {
   DashboardValueDimension, useDashboardI18n,
 } from '@/lib/dashboard-i18n';
@@ -700,17 +701,18 @@ interface Props {
   allCountryCounts: Record<string, number>;
   activeCountry: string;
   onCountrySelect: (c: string) => void;
+  filters: JobFilters;
+  onFilterChange: (key: keyof JobFilters, value: string) => void;
 }
 
-export default function Dashboard({ selectedDumps, allTimelines, activeTimeline, onTimelineSelect, allCountries, allCountryCounts, activeCountry, onCountrySelect }: Props) {
+export default function Dashboard({ selectedDumps, allTimelines, activeTimeline, onTimelineSelect, allCountries, allCountryCounts, activeCountry, onCountrySelect, filters, onFilterChange }: Props) {
   const i18n = useDashboardI18n();
   const [data,     setData]     = useState<DashboardData | null>(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
   const dashboardCache = useRef(new Map<string, DashboardData>());
 
-  const [activeSector, setActiveSector] = useState('All');
-  const [allSectors,     setAllSectors]     = useState<string[]>([]);
+  const activeSector = filters.sector ?? 'All';
   const [drilldown, setDrilldown] = useState<DrilldownRequest | null>(null);
 
   // Sticky-bar shadow + scroll-to-top affordance.
@@ -750,7 +752,8 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
   // which would show the user the same stats as "All" and contradict their intent.
   const noDatasets = selectedDumps.length === 0;
   const dumpsKey = selectedDumps.join(',');
-  const dashboardKey = `${dumpsKey}::${activeSector}`;
+  const filtersKey = JSON.stringify(filters);
+  const dashboardKey = `${dumpsKey}::${filtersKey}`;
 
   // Fetch whenever dumps/country/timeline/sector change.
   //
@@ -787,7 +790,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
     const debounce = setTimeout(() => {
       loadingTimer = setTimeout(() => { if (!cancelled) setLoading(true); }, 250);
       fetchDashboard(
-        { dumps: dumpsKey.split(','), sector: activeSector !== 'All' ? activeSector : undefined },
+        { dumps: dumpsKey.split(','), ...JSON.parse(filtersKey) },
         controller.signal,
       )
         .then(d => {
@@ -795,10 +798,6 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
           dashboardCache.current.set(dashboardKey, d);
           setData(d);
           setError('');
-          if (activeSector === 'All') {
-            const secs = [...new Set(d.sectors.map(s => s.sector))].sort();
-            setAllSectors(secs);
-          }
         })
         .catch(e => {
           if (cancelled || e.name === 'AbortError') return;
@@ -816,14 +815,7 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
       clearTimeout(debounce);
       if (loadingTimer) clearTimeout(loadingTimer);
     };
-  }, [dumpsKey, dashboardKey, activeSector, noDatasets]);
-
-  // Reset sector when selection, country, or timeline changes.
-  useEffect(() => {
-    // The available sector scope changes when dataset navigation changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveSector('All');
-  }, [selectedDumps, activeCountry, activeTimeline]);
+  }, [dumpsKey, dashboardKey, filtersKey, activeSector, noDatasets]);
 
   // Colors keyed on allTimelines so they stay consistent regardless of active filters
   const tlColors: Record<string, string> = {};
@@ -919,8 +911,12 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
   // Subsequent loads (filter change) — keep dashboard visible, dim & disable interactions
   const refetching = loading;
 
-  const baseScope: DashboardScope = activeSector !== 'All' ? { sector: activeSector } : {};
+  const baseScope: DashboardScope = postingScope(filters);
   const openDrilldown = (title: string, scope: DashboardScope) => {
+    for (const key of ['sector', 'employment_type', 'career_level', 'company', 'experience'] as const) {
+      if (scope[key]) onFilterChange(key, scope[key]!);
+    }
+    if (scope.salary_bracket) onFilterChange('salary_bucket', scope.salary_bracket);
     setDrilldown({ title, scope: { ...baseScope, ...scope } });
   };
   const exportActions = (dimension: DashboardDimension) => ({
@@ -953,39 +949,6 @@ export default function Dashboard({ selectedDumps, allTimelines, activeTimeline,
             />
           )}
 
-          {/* Sector filter */}
-          {allSectors.length > 0 && (
-            <div className="flex items-center gap-3 flex-wrap pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-              <span className="text-xs font-semibold" style={{ color: 'var(--muted)' }}>{i18n.t('filters.sectorLabel')}</span>
-              <div className="flex gap-2 flex-wrap flex-1">
-                <button
-                  onClick={() => setActiveSector('All')}
-                  className="px-3 min-h-8 rounded-full text-xs font-semibold pill-hover focus-ring"
-                  style={activeSector === 'All'
-                    ? { background: 'var(--card-alt)', color: 'var(--text)', border: '1px solid var(--muted)' }
-                    : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                  {i18n.t('filters.allSectors')}
-                </button>
-                {allSectors.map(s => (
-                  <button key={s} onClick={() => setActiveSector(s)}
-                    className="px-3 min-h-8 rounded-full text-xs font-semibold pill-hover focus-ring"
-                    style={activeSector === s
-                      ? { background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', boxShadow: '0 1px 2px rgba(108,99,255,0.25), 0 4px 10px rgba(108,99,255,0.18)' }
-                      : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                    {i18n.value('sector', s)}
-                  </button>
-                ))}
-              </div>
-              {activeSector !== 'All' && (
-                <button
-                  onClick={() => setActiveSector('All')}
-                  className="inline-flex items-center gap-1 text-xs px-2 min-h-8 rounded-lg pill-hover focus-ring"
-                  style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                  <span aria-hidden>✕</span> {i18n.t('common.clear')}
-                </button>
-              )}
-            </div>
-          )}
           <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
             <DashboardSearch onSearch={request => setDrilldown({
               ...request,

@@ -12,6 +12,7 @@ from collections import Counter
 from typing import Any
 
 import pandas as pd
+from query_policy import classify_question, refusal_text
 
 from analytics import _parse_skills, _sort_timelines_chrono
 from filter_registry import FILTER_REGISTRY
@@ -65,7 +66,7 @@ _EMPLOYMENT_TYPE_QUERIES = (
 
 _ARABIC_RE = re.compile(r"[\u0600-\u06ff]")
 _ARABIC_COUNTRIES = {"Qatar": "قطر", "Saudi Arabia": "السعودية", "UAE": "الإمارات"}
-_ARABIC_TIMELINES = {"May 2026": "مايو 2026", "Jun 2026": "يونيو 2026"}
+_ARABIC_TIMELINES = {"Nov 2025": "نوفمبر 2025", "Feb 2026": "فبراير 2026", "May 2026": "مايو 2026", "Jun 2026": "يونيو 2026"}
 
 
 def _is_arabic(text: str) -> bool:
@@ -99,12 +100,12 @@ def _source_caveat(scoped: pd.DataFrame, arabic: bool) -> str:
         return ""
     if arabic:
         return (
-            "**ملاحظة منهجية:** بيانات مايو مأخوذة من Bayt وبيانات يونيو من LinkedIn؛ "
-            "لذلك يصف التغير اختلاف لقطتي البيانات ولا يثبت وحده تغير السوق الفعلي."
+            "**ملاحظة منهجية:** تشمل الفترات المحددة بيانات من Bayt وLinkedIn. "
+            "يصف التغير اختلاف لقطات البيانات ولا يثبت وحده تغير السوق الفعلي."
         )
     return (
-        "**Method note:** May data comes from Bayt and June data comes from LinkedIn. "
-        "The change describes these two dataset snapshots and does not, by itself, prove a market-wide change."
+        "**Method note:** The selected periods include Bayt and LinkedIn data. "
+        "The change describes dataset snapshots and does not, by itself, prove a market-wide change."
     )
 
 _SKILL_ALIASES = {
@@ -208,7 +209,7 @@ def _scope_base(
     for key, raw_value in (explicit_filters or {}).items():
         field = FILTER_REGISTRY.get(key)
         if field is None or field.column not in scoped.columns:
-            continue
+            return scoped.iloc[:0]
         value = field.normalize(raw_value) if field.normalize else str(raw_value).strip()
         if value is None or not str(value).strip():
             continue
@@ -263,10 +264,31 @@ def _scope_question(
 
     timelines: list[str] = []
     if "_timeline" in base.columns:
+        month_aliases = {
+            'Jan': r'jan(?:uary)?|يناير', 'Feb': r'feb(?:ruary)?|فبراير',
+            'Mar': r'mar(?:ch)?|مارس', 'Apr': r'apr(?:il)?|أبريل|ابريل',
+            'May': r'may|مايو', 'Jun': r'jun(?:e)?|يونيو',
+            'Jul': r'jul(?:y)?|يوليو', 'Aug': r'aug(?:ust)?|أغسطس|اغسطس',
+            'Sep': r'sep(?:tember)?|سبتمبر', 'Oct': r'oct(?:ober)?|أكتوبر|اكتوبر',
+            'Nov': r'nov(?:ember)?|نوفمبر', 'Dec': r'dec(?:ember)?|ديسمبر',
+        }
+        # ``\b`` is not reliable around Arabic letters in Python's Unicode
+        # regex engine (for example مايو/يونيو), so use a boundary-free
+        # alternative here and rely on the canonical timeline vocabulary.
+        is_arabic_question = bool(re.search(r'[\u0600-\u06ff]', question))
+        months = set()
+        for month, aliases in month_aliases.items():
+            # Keep word boundaries for English (otherwise ``Dec`` matches
+            # ``declining``); Arabic uses a boundary-free match because Python
+            # does not consistently treat Arabic letters as \b word chars.
+            alias_pattern = aliases if is_arabic_question else aliases.split("|")[0]
+            pattern = r'(?:' + alias_pattern + r')' if is_arabic_question else r'\b(?:' + alias_pattern + r')\b'
+            if re.search(pattern, question, re.I):
+                months.add(month)
         for timeline in base["_timeline"].dropna().unique():
-            if str(timeline).casefold() in question.casefold():
+            if str(timeline).casefold() in question.casefold() or str(timeline).split()[0] in months:
                 timelines.append(str(timeline))
-        if timelines:
+        if timelines or months:
             scoped = scoped[scoped["_timeline"].isin(timelines)]
         else:
             timelines = _sort_timelines_chrono([str(v) for v in scoped["_timeline"].dropna().unique()])
@@ -634,6 +656,10 @@ def build_fast_answer(
     q = clean.casefold()
     arabic = _is_arabic(clean)
 
+    policy_reason = classify_question(clean)
+    if policy_reason:
+        return _result(refusal_text(arabic, policy_reason), "policy-refusal", "", df.iloc[:0])
+
     # Conversation/help messages must be instant. They do not depend on the
     # selected dataframe, so avoid paying for country/timeline scans before
     # recognizing them—especially while another semantic request is using CPU.
@@ -652,6 +678,29 @@ def build_fast_answer(
     scoped, countries, timelines, scope = _scope_question(base, clean, history)
     scope = _localized_scope(countries, timelines, len(scoped), arabic)
 
+    # Answer common multi-intent questions as a small set of independently
+    # grounded sections. Previously the first regex branch (usually ``count``)
+    # swallowed the rest of a question such as "how many jobs and what skills".
+    # Each child query is routed through the same deterministic planner and
+    # therefore cannot introduce facts that are not in the selected frame.
+    has_count = bool(re.search(r"how many|\bcount\b|\btotal\b|number of|كم|عدد", q))
+    has_skills = bool(re.search(r"skill|learn|qualification|requirement|مهار|مؤهل|متطلب", q))
+    has_companies = bool(re.search(r"compan|employer|شرك|صاحب العمل", q))
+    if has_count and (has_skills or has_companies) and re.search(r"\band\b|\balso\b|\bin addition\b|و|أيضًا", q):
+        children = []
+        if has_count:
+            children.append(build_fast_answer(df, "How many job postings are in the selected scope?", history, dump_ids, explicit_filters))
+        if has_skills:
+            children.append(build_fast_answer(df, "What are the most requested skills?", history, dump_ids, explicit_filters))
+        if has_companies:
+            children.append(build_fast_answer(df, "Which companies are hiring the most?", history, dump_ids, explicit_filters))
+        children = [child for child in children if child]
+        if len(children) > 1:
+            heading = "## Combined answer" if not arabic else "## إجابة مركبة"
+            answer = heading + "\n\n" + "\n\n---\n\n".join(child["answer"] for child in children)
+            evidence = scoped
+            return _result(answer, "multi-intent", scope, evidence, _job_evidence(evidence))
+
     # Out-of-scope years and domains receive an immediate, honest response.
     requested_years = {int(year) for year in re.findall(r"\b(?:19|20)\d{2}\b", clean)}
     available_years = {
@@ -659,13 +708,15 @@ def build_fast_answer(
         for year in re.findall(r"\b(?:19|20)\d{2}\b", str(value))
     }
     if requested_years and not requested_years.issubset(available_years):
+        available_periods = _sort_timelines_chrono([str(v) for v in base.get('_timeline', pd.Series(dtype=str)).dropna().unique()])
+        period_label = ', '.join(_display_timeline(value, arabic) for value in available_periods)
         answer = (
             "## لا توجد بيانات لهذه الفترة\n\n"
-            f"تغطي البيانات المحددة **مايو ويونيو 2026 فقط**، لذلك لا أستطيع تقديم إجابة موثوقة عن {'، '.join(str(v) for v in sorted(requested_years))}. "
+            f"تغطي البيانات المحددة **{period_label}**، لذلك لا أستطيع تقديم إجابة موثوقة عن {'، '.join(str(v) for v in sorted(requested_years))}. "
             "اختر فترة متاحة أو أضف مجموعة بيانات جديدة أولًا."
             if arabic else
             "## No data for that period\n\n"
-            f"The selected data covers **May and June 2026 only**, so I cannot give a reliable answer for {', '.join(str(v) for v in sorted(requested_years))}. "
+            f"The selected data covers **{period_label}**, so I cannot give a reliable answer for {', '.join(str(v) for v in sorted(requested_years))}. "
             "Choose an available period or add a new dataset first."
         )
         return _result(answer, "out-of-scope", scope, scoped)
@@ -697,22 +748,53 @@ def build_fast_answer(
         and re.search(r"which|highest|most|leading|top|أكبر|أكثر|الأكثر|ترتيب", q)
     )
     if count_request and not sector_ranking_request:
+        role_scoped, role_label = _role_scope(scoped, clean, history)
+        # Handle distribution questions deterministically. This prevents an
+        # unfamiliar phrasing such as "break the postings down per sector"
+        # from falling through to Fanar, which cannot calculate corpus totals.
+        group_specs = [
+            (r"(?:each|every|per|by|across)\s+(?:the\s+)?(?:sector|industry)|sector[- ]wise|حسب القطاع", "category", "Sector", "القطاع"),
+            (r"(?:each|every|per|by|across)\s+(?:the\s+)?(?:company|employer)|company[- ]wise|حسب الشركة", "company", "Employer", "صاحب العمل"),
+            (r"(?:each|every|per|by|across)\s+(?:the\s+)?(?:source|platform)|source[- ]wise|حسب المصدر", "_source", "Source", "المصدر"),
+            (r"(?:each|every|per|across)\s+(?:the\s+)?(?:period|month|timeline)|period[- ]wise|over each month|حسب الفترة", "_timeline", "Period", "الفترة"),
+            (r"(?:each|every|per|by)\s+(?:employment type|contract type)|حسب نوع التوظيف", "_employment_norm", "Employment type", "نوع التوظيف"),
+        ]
+        for pattern, column, label, ar_label in group_specs:
+            if re.search(pattern, q) and column in role_scoped.columns:
+                counts = role_scoped[column].dropna().astype(str).str.strip().replace("", pd.NA).dropna().value_counts()
+                if not counts.empty:
+                    title = f"{label} distribution" if not arabic else f"توزيع الوظائف حسب {ar_label}"
+                    lines = [f"## {title}", "", f"| {ar_label if arabic else label} | {'الإعلانات' if arabic else 'Postings'} |", "|---|---:|"]
+                    lines += [f"| {_display_country(str(name), arabic) if column == '_country' else name} | {int(count):,} |" for name, count in counts.items()]
+                    lines += (["", f"**الإجمالي: {len(role_scoped):,} إعلانًا.**", "", f"*النطاق: {scope}*"] if arabic else ["", f"**Total: {len(role_scoped):,} postings.**", "", f"*Scope: {scope}*"])
+                    return _result("\n".join(lines), "distribution", scope, role_scoped, _job_evidence(role_scoped))
         if "compan" in q or "شركة" in q or "شركات" in q:
             count = scoped.get("company", pd.Series(dtype=str)).dropna().replace("", pd.NA).nunique()
             answer = (f"## الشركات الممثلة\n\nتظهر **{count:,} شركة** في النطاق المحدد.\n\n*النطاق: {scope}*"
                       if arabic else
                       f"## Companies represented\n\n**{count:,} companies** appear in the selected scope.\n\n*Scope: {scope}*")
             return _result(answer, "count", scope, scoped)
-        role_scoped, role_label = _role_scope(scoped, clean, history)
-        by_country = _ALL_COUNTRIES_RE.search(clean) or "in each country" in q or "by country" in q or "حسب الدولة" in q
+        by_country = (
+            _ALL_COUNTRIES_RE.search(clean)
+            or "in each country" in q
+            or "for each country" in q
+            or "each of them" in q
+            or "by country" in q
+            or "per country" in q
+            or "country-wise" in q
+            or "country wise" in q
+            or "in every country" in q
+            or "حسب الدولة" in q
+            or bool(re.search(r"how many countries?\b.*\bhow many\b", q))
+        )
         if by_country and "_country" in role_scoped.columns:
             counts = role_scoped["_country"].value_counts()
             lines = ([f"## {role_label} حسب الدولة", "", "| الدولة | الإعلانات |", "|---|---:|"]
                      if arabic else
                      [f"## {role_label.title()} by country", "", "| Country | Postings |", "|---|---:|"])
             lines += [f"| {_display_country(str(country), arabic)} | {int(count):,} |" for country, count in counts.items()]
-            lines += (["", f"**الإجمالي: {len(role_scoped):,} إعلانًا.**", "", f"*النطاق: {scope}*"]
-                      if arabic else ["", f"**Total: {len(role_scoped):,} postings.**", "", f"*Scope: {scope}*"])
+            lines += (["", f"**عدد الدول: {counts.size} · إجمالي الإعلانات: {len(role_scoped):,}.**", "", f"*النطاق: {scope}*"]
+                      if arabic else ["", f"**{counts.size} countries · {len(role_scoped):,} total postings.**", "", f"*Scope: {scope}*"])
             return _result("\n".join(lines), "country-comparison", scope, role_scoped, _job_evidence(role_scoped))
         label = role_label if role_label not in {"all roles", "جميع الوظائف"} else ("إعلانًا وظيفيًا" if arabic else "job postings")
         answer = (f"## إجمالي {label}\n\nيطابق النطاق المحدد **{len(role_scoped):,}** {label}.\n\n*النطاق: {scope}*"

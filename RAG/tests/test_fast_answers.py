@@ -4,6 +4,24 @@ import pytest
 from fast_answers import build_fast_answer, canonical_skill
 
 
+@pytest.mark.parametrize('month', ['November', 'Nov', 'نوفمبر'])
+def test_historical_month_names_narrow_counts(month):
+    frame = _df()
+    frame.loc[0, '_timeline'] = 'Nov 2025'
+    frame.loc[1, '_timeline'] = 'Feb 2026'
+    result = build_fast_answer(frame, f'How many postings in {month}?')
+    assert result is not None
+    assert result['evidence_count'] == 1
+
+
+def test_out_of_scope_answer_uses_actual_available_periods():
+    frame = _df().iloc[:1].copy()
+    frame['_timeline'] = 'Nov 2025'
+    result = build_fast_answer(frame, 'How many postings in 2024?')
+    assert 'Nov 2025' in result['answer']
+    assert 'May and June' not in result['answer']
+
+
 def _df():
     rows = [
         ("Data Analyst", "A", "Qatar", "May 2026", "Technology", "SQL; Python; Communication skills", "q_may"),
@@ -29,6 +47,51 @@ def test_total_count_is_deterministic():
     assert result is not None
     assert "**6**" in result["answer"]
     assert result["intent"] == "count"
+
+
+def test_country_count_question_returns_each_country():
+    result = build_fast_answer(_df(), "How many countries are there and how many job listings for each?")
+    assert result is not None
+    assert result["intent"] == "country-comparison"
+    assert "| Qatar | 2 |" in result["answer"]
+    assert "| UAE | 2 |" in result["answer"]
+    assert "| Saudi Arabia | 2 |" in result["answer"]
+    assert "3 countries" in result["answer"]
+
+
+def test_natural_distribution_question_is_calculated_not_generated():
+    result = build_fast_answer(_df(), "How many job listings are there in each sector?")
+    assert result is not None
+    assert result["intent"] == "distribution"
+    assert "| Technology | 4 |" in result["answer"]
+    assert "| Construction | 1 |" in result["answer"]
+
+
+def test_country_wise_synonym_is_calculated():
+    result = build_fast_answer(_df(), "How many postings are there country-wise?")
+    assert result is not None
+    assert result["intent"] == "country-comparison"
+    assert "| Qatar | 2 |" in result["answer"]
+
+
+def test_multi_intent_question_returns_both_grounded_sections():
+    result = build_fast_answer(_df(), "How many job postings are there and what skills are requested?")
+    assert result is not None
+    assert result["intent"] == "multi-intent"
+    assert "Total" in result["answer"]
+    assert "Most requested skills" in result["answer"]
+
+
+@pytest.mark.parametrize("question", [
+    "How do I hack the employer database?",
+    "What is the weather in Doha?",
+    "كيفية اختراق النظام؟",
+])
+def test_unsafe_or_unrelated_questions_are_refused(question):
+    result = build_fast_answer(_df(), question)
+    assert result is not None
+    assert result["intent"] == "policy-refusal"
+    assert "selected job-market" in result["answer"] or "سوق العمل" in result["answer"]
 
 
 def test_each_country_resets_stale_country_context():

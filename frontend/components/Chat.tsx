@@ -342,6 +342,7 @@ interface MessageWithId extends Message {
 interface Props {
   selectedDumps: string[];
   model: string;
+  filters: import('@/lib/filters').JobFilters;
 }
 
 type FeedbackStatus = "idle" | "sending" | "sent" | "error";
@@ -487,7 +488,7 @@ function AnswerFeedback({ traceId, sessionId, question, answer, arabic }: {
   );
 }
 
-export default function Chat({ selectedDumps, model }: Props) {
+export default function Chat({ selectedDumps, model, filters }: Props) {
   const { lang, dir } = useLanguage();
   const arabic = lang === "ar";
   const [sessionId, setSessionId] = useState<string>("");
@@ -515,6 +516,7 @@ export default function Chat({ selectedDumps, model }: Props) {
       });
     return () => {
       cancelled = true;
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -546,6 +548,10 @@ export default function Chat({ selectedDumps, model }: Props) {
 
   async function send(question: string) {
     if (!question.trim()) return;
+    if (!selectedDumps.length) {
+      setSessionError(arabic ? 'اختر مجموعة بيانات واحدة على الأقل.' : 'Select at least one dataset before asking a question.');
+      return;
+    }
     if (!sessionId) {
       setSessionError(arabic ? "لا يوجد اتصال بالخادم. حدّث الصفحة." : "Not connected to server. Please refresh the page.");
       return;
@@ -580,6 +586,7 @@ export default function Chat({ selectedDumps, model }: Props) {
         model,
         selectedDumps,
         controller.signal,
+        filters,
       )) {
         if (event.type === "retrieval") {
           setSearching(false);

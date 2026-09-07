@@ -24,6 +24,19 @@ def test_valid_request_passes():
     assert req.filters == {"sector": "Technology"}
 
 
+def test_unknown_filter_is_rejected_instead_of_silently_ignored():
+    with pytest.raises(ValidationError, match='Unsupported job filter'):
+        ChatRequest(**_valid(filters={'typo_sector': 'Technology'}))
+
+
+def test_empty_dataset_selection_cannot_expand_to_all_records():
+    from fastapi.testclient import TestClient
+    from server import app
+    response = TestClient(app).post('/api/chat', json=_valid(dump_ids=[]))
+    assert response.status_code == 400
+    assert 'Select at least one dataset' in response.text
+
+
 def test_defaults():
     req = ChatRequest(question="hi", session_id="s1")
     assert req.dump_ids == [] and req.filters == {}

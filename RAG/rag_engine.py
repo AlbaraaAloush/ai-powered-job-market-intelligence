@@ -379,15 +379,14 @@ def _apply_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
             # Generic exact-match for any registered explicit (UI-driven) filter —
             # adding a new one in filter_registry.py needs no change here.
             if field not in result.columns:
-                continue
+                return result.iloc[:0]
             col = result[field].astype(str)
-            narrowed = result[col.str.lower() == str(value).lower()]
-            result = narrowed if len(narrowed) > 0 else result
+            result = result[col.str.strip().str.casefold() == str(value).strip().casefold()]
         else:
             # Ignore all other structured filters in the retrieval context.
             continue
 
-    return result if len(result) > 0 else df
+    return result
 
 
 def _find_similar_titles(df: pd.DataFrame, query: str, n: int = 6) -> list[str]:
@@ -482,8 +481,10 @@ def _narrow_by_soft_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
     if "_timeline" in filters and "_timeline" in df.columns:
         df = df[df["_timeline"] == filters["_timeline"]]
     for column in EXPLICIT_FILTER_COLUMNS:
-        if filters.get(column) and column in df.columns:
-            df = df[df[column].astype(str).str.lower() == str(filters[column]).lower()]
+        if filters.get(column):
+            if column not in df.columns:
+                return df.iloc[:0]
+            df = df[df[column].astype(str).str.strip().str.casefold() == str(filters[column]).strip().casefold()]
     return df
 
 
@@ -683,7 +684,7 @@ def _matches_filter_metadata(metadata: dict, filters: dict) -> bool:
         field = field_for_column(column)
         raw = metadata.get(column, "")
         actual = str((field.normalize(raw) if field and field.normalize else raw) or "").strip().lower()
-        if actual and actual != expected:
+        if actual != expected:
             return False
 
     return True
@@ -742,7 +743,7 @@ def _post_filter_semantic_results(results: list[dict], filters: dict) -> list[di
         return results
 
     filtered = [r for r in results if _matches_filter_metadata(r.get("metadata", {}), filters)]
-    return filtered if filtered else results
+    return filtered
 
 
 # ---------------------------------------------------------------------------
@@ -1081,6 +1082,8 @@ class RAGEngine:
             }
 
         filters        = {**decomposed.get("filters", {}), **explicit}
+        if '_career_norm' in explicit:
+            filters.pop('career_level', None)
         needs_agg      = decomposed.get("needs_aggregation", False)
         analysis_types = decomposed.get("analysis_types", [])
         resolved_q     = decomposed.get("resolved_question") or question
@@ -1229,7 +1232,7 @@ class RAGEngine:
             parts.append(
                 f"{label.upper()} SCOPE: The user has filtered the dashboard to \"{filters[column]}\" "
                 f"({label}) only. Answer only for that {label} — do not include postings outside it "
-                "unless the user explicitly asks to compare or broaden scope."
+                "The selected filters remain mandatory even when the question asks for a broader comparison."
             )
 
         # Job-title grounding check — if the user asked about a specific role and
@@ -1341,7 +1344,7 @@ class RAGEngine:
 
             # Defense-in-depth: whatever path above ran, never let a Qdrant-side
             # filter failure leak postings from an unselected dump/country/timeline.
-            results = _dump_scoped(results, active_dump_ids)
+            results = _post_filter_semantic_results(_dump_scoped(results, active_dump_ids), filters)
 
             # Hybrid retrieval: fuse the vector hits with BM25 keyword search over
             # the same scoped candidate pool (summary_df — already narrowed by
@@ -1373,7 +1376,7 @@ class RAGEngine:
                 # rows in directly so the LLM sees real postings for that role.
                 want = min(3, n_semantic)
                 if len(title_matches) < want and "job_title" in base_df.columns:
-                    job_rows = base_df[_job_title_mask(base_df["job_title"], filters["job_title"])]
+                    job_rows = summary_df[_job_title_mask(summary_df["job_title"], filters["job_title"])]
                     if "_country" in filters and "_country" in job_rows.columns:
                         job_rows = job_rows[
                             job_rows["_country"].astype(str).str.lower() == str(filters["_country"]).lower()
@@ -1401,6 +1404,7 @@ class RAGEngine:
             else:
                 results = _post_filter_semantic_results(results, filters)
 
+            results = _post_filter_semantic_results(_dump_scoped(results, active_dump_ids), filters)
             if results:
                 # Deduplicate: same job posted across multiple timelines → keep highest score only
                 seen_jobs: set[tuple] = set()
@@ -1469,8 +1473,8 @@ class RAGEngine:
         if len(parts) == 1:
             parts.append(
                 "DATA NOTE: No specific postings or analytics were retrieved for this query. "
-                "Answer qualitatively based on general GCC job market knowledge where appropriate, "
-                "but clearly state that exact figures are not available in the dataset."
+                "Do not use general knowledge to answer factual claims. State that the selected "
+                "dataset does not contain sufficient evidence and abstain from unsupported figures."
             )
 
         context = "\n\n".join(filter(None, parts))
@@ -1522,6 +1526,7 @@ class RAGEngine:
             total_df = self.analytics.df
             if dump_ids and "_dump_id" in total_df.columns:
                 total_df = total_df[total_df["_dump_id"].isin(dump_ids)]
+            total_df = _narrow_by_soft_filters(total_df, prepared.get('filters', {}))
             total = len(total_df)
             answer = (f"إجمالي إعلانات الوظائف في مجموعات البيانات المحددة هو {total:,}. [DATASET-1]"
                       if re.search(r"[\u0600-\u06ff]", question)
@@ -1548,10 +1553,11 @@ class RAGEngine:
         df = self.analytics.df
         if dump_ids and "_dump_id" in df.columns:
             df = df[df["_dump_id"].isin(dump_ids)]
-        for column in EXPLICIT_FILTER_COLUMNS:
-            value = prepared["filters"].get(column)
-            if value and column in df.columns:
-                df = df[df[column].astype(str).str.lower() == str(value).lower()]
+        df = _narrow_by_soft_filters(df, prepared.get('filters', {}))
+        if df.empty and not prepared.get('decomposed', {}).get('_chitchat'):
+            prepared['abstention'] = {'abstained': True, 'reason': 'insufficient_evidence'}
+            yield abstention_text(bool(re.search(r'[\u0600-\u06ff]', question)), 'insufficient_evidence')
+            return
         countries = sorted(df["_country"].dropna().unique().tolist()) if "_country" in df.columns else []
         timelines = AnalyticsEngine(df).timelines
         system   = build_system_prompt(

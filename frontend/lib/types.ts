@@ -1,5 +1,6 @@
 export interface DumpInfo {
   _dump_id: string;
+  _source: string;
   _country: string;
   _timeline: string;
   _dump_label: string;
