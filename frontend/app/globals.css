@@ -750,8 +750,11 @@ html[lang="ar"] .m-eyebrow {
 }
 .chat-empty__prompts button:hover { border-color: var(--m-line-strong); background: var(--m-bg-elev); }
 .chat-empty__prompts button:active { transform: scale(0.99); }
-.chat-message-row { display: flex; justify-content: flex-start; margin-bottom: 22px; }
-.chat-message-row--user { justify-content: flex-end; }
+/* Keep conversation sides fixed while each message retains its text direction. */
+.chat-message-row { display: flex; justify-content: left; margin-bottom: 22px; }
+.chat-message-row--user { justify-content: right; }
+.chat-evidence,
+.chat-waiting { margin-left: 0; margin-right: auto; }
 .chat-message { padding: 16px 18px; border-radius: 14px; font-size: 14px; line-height: 1.7; }
 .chat-message--assistant { width: min(100%, 760px); background: var(--m-bg); border: 1px solid var(--m-line); box-shadow: 0 8px 26px rgb(21 26 32 / 3%); }
 .chat-message--user { max-width: min(82%, 680px); background: var(--m-primary); color: var(--m-on-primary); }
@@ -762,7 +765,7 @@ html[lang="ar"] .m-eyebrow {
 .chat-answer__table-heading { padding: 9px 11px; background: var(--m-bg-elev); color: var(--m-ink); font-weight: 650; text-align: start; white-space: nowrap; }
 .chat-answer__table-cell { padding: 9px 11px; border-top: 1px solid var(--m-line); color: var(--m-ink-2); text-align: start; vertical-align: top; }
 .chat-answer__table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--m-bg-elev) 58%, transparent); }
-.answer-feedback { width: min(100%, 760px); margin: -14px 0 24px; color: var(--m-ink-2); font-size: 12px; }
+.answer-feedback { width: min(100%, 760px); margin: -14px auto 24px 0; color: var(--m-ink-2); font-size: 12px; }
 .answer-feedback__prompt { display: flex; align-items: center; gap: 6px; }
 .answer-feedback__prompt > span { margin-inline-end: 2px; }
 .answer-feedback__prompt > button { width: 32px; height: 30px; display: inline-grid; place-items: center; border: 1px solid var(--m-line); border-radius: 9px; background: var(--m-bg); color: var(--m-ink-2); transition: border-color 150ms, background-color 150ms, color 150ms, transform 150ms; }
