@@ -678,29 +678,6 @@ def build_fast_answer(
     scoped, countries, timelines, scope = _scope_question(base, clean, history)
     scope = _localized_scope(countries, timelines, len(scoped), arabic)
 
-    # Answer common multi-intent questions as a small set of independently
-    # grounded sections. Previously the first regex branch (usually ``count``)
-    # swallowed the rest of a question such as "how many jobs and what skills".
-    # Each child query is routed through the same deterministic planner and
-    # therefore cannot introduce facts that are not in the selected frame.
-    has_count = bool(re.search(r"how many|\bcount\b|\btotal\b|number of|كم|عدد", q))
-    has_skills = bool(re.search(r"skill|learn|qualification|requirement|مهار|مؤهل|متطلب", q))
-    has_companies = bool(re.search(r"compan|employer|شرك|صاحب العمل", q))
-    if has_count and (has_skills or has_companies) and re.search(r"\band\b|\balso\b|\bin addition\b|و|أيضًا", q):
-        children = []
-        if has_count:
-            children.append(build_fast_answer(df, "How many job postings are in the selected scope?", history, dump_ids, explicit_filters))
-        if has_skills:
-            children.append(build_fast_answer(df, "What are the most requested skills?", history, dump_ids, explicit_filters))
-        if has_companies:
-            children.append(build_fast_answer(df, "Which companies are hiring the most?", history, dump_ids, explicit_filters))
-        children = [child for child in children if child]
-        if len(children) > 1:
-            heading = "## Combined answer" if not arabic else "## إجابة مركبة"
-            answer = heading + "\n\n" + "\n\n---\n\n".join(child["answer"] for child in children)
-            evidence = scoped
-            return _result(answer, "multi-intent", scope, evidence, _job_evidence(evidence))
-
     # Out-of-scope years and domains receive an immediate, honest response.
     requested_years = {int(year) for year in re.findall(r"\b(?:19|20)\d{2}\b", clean)}
     available_years = {
@@ -720,6 +697,30 @@ def build_fast_answer(
             "Choose an available period or add a new dataset first."
         )
         return _result(answer, "out-of-scope", scope, scoped)
+
+    # Answer common multi-intent questions as a small set of independently
+    # grounded sections. Previously the first regex branch (usually ``count``)
+    # swallowed the rest of a question such as "how many jobs and what skills".
+    # Resolve the original country, period and role before generating child
+    # questions, so generic child wording cannot broaden the requested scope.
+    has_count = bool(re.search(r"how many|\bcount\b|\btotal\b|number of|كم|عدد", q))
+    has_skills = bool(re.search(r"skill|learn|qualification|requirement|مهار|مؤهل|متطلب", q))
+    has_companies = bool(re.search(r"compan|employer|شرك|صاحب العمل", q))
+    if has_count and (has_skills or has_companies) and re.search(r"\band\b|\balso\b|\bin addition\b|و|أيضًا", q):
+        evidence, _ = _role_scope(scoped, clean, history)
+        scope = _localized_scope(countries, timelines, len(evidence), arabic)
+        children = []
+        if has_count:
+            children.append(build_fast_answer(evidence, "كم عدد إعلانات الوظائف في النطاق المحدد؟" if arabic else "How many job postings are in the selected scope?"))
+        if has_skills:
+            children.append(build_fast_answer(evidence, "ما المهارات الأكثر طلبًا؟" if arabic else "What are the most requested skills?"))
+        if has_companies:
+            children.append(build_fast_answer(evidence, "ما الشركات الأكثر توظيفًا؟" if arabic else "Which companies are hiring the most?"))
+        children = [child for child in children if child]
+        if len(children) > 1:
+            heading = "## Combined answer" if not arabic else "## إجابة مركبة"
+            answer = heading + "\n\n" + "\n\n---\n\n".join(child["answer"] for child in children)
+            return _result(answer, "multi-intent", scope, evidence, _job_evidence(evidence))
 
     if re.search(r"\b(?:weather|temperature|sports?|recipe|mars)\b|الطقس|درجة الحرارة|رياضة|وصفة|المريخ", q):
         answer = (

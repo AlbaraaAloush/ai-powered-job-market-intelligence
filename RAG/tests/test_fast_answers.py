@@ -83,6 +83,47 @@ def test_multi_intent_question_returns_both_grounded_sections():
 
 
 @pytest.mark.parametrize("question", [
+    "How many data analyst jobs are in Qatar in May 2026 and what skills are requested?",
+    "How many data analyst jobs are in Qatar in May 2026 and which companies are hiring?",
+])
+def test_multi_intent_keeps_question_scope_in_every_section(question):
+    result = build_fast_answer(_df(), question)
+    assert result["intent"] == "multi-intent"
+    assert result["evidence_count"] == 1
+    assert "**1**" in result["answer"]
+    assert "UAE" not in result["answer"]
+    assert "Saudi Arabia" not in result["answer"]
+    assert "Jun 2026" not in result["answer"]
+    assert {row["company"] for row in result["evidence"]} == {"A"}
+
+
+def test_multi_intent_does_not_bypass_unavailable_year_check():
+    result = build_fast_answer(_df(), "How many jobs were available in 2024 and what skills were requested?")
+    assert result["intent"] == "out-of-scope"
+
+
+def test_multi_intent_arabic_sections_keep_response_language():
+    result = build_fast_answer(_df(), "كم عدد وظائف محلل بيانات في قطر وما المهارات المطلوبة؟")
+    assert result["intent"] == "multi-intent"
+    assert "## إجمالي" in result["answer"]
+    assert "## أكثر المهارات" in result["answer"]
+    assert "Most requested skills" not in result["answer"]
+    assert "Total" not in result["answer"]
+    assert result["evidence_count"] == 1
+
+
+def test_multi_intent_keeps_explicit_filters_and_empty_matches():
+    result = build_fast_answer(
+        _df(), "How many jobs are in Qatar and what skills are requested?",
+        dump_ids=["q_may", "u_may"], explicit_filters={"company": "C"},
+    )
+    assert result["evidence_count"] == 0
+    assert "**0**" in result["answer"]
+    assert "UAE" not in result["answer"]
+    assert result["evidence"] == []
+
+
+@pytest.mark.parametrize("question", [
     "How do I hack the employer database?",
     "What is the weather in Doha?",
     "كيفية اختراق النظام؟",
