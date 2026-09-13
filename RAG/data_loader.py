@@ -428,9 +428,13 @@ def sort_timelines(timelines: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _source_files(data_dir: Path) -> list[Path]:
+    # Path ordering differs between Windows and POSIX for mixed-case names.
+    # Use the exported snapshot's case-insensitive ordering everywhere, since
+    # order affects both the fingerprint and which duplicate posting survives.
     return sorted(
-        f for f in list(data_dir.glob("*.xlsx")) + list(data_dir.glob("*.csv"))
-        if not f.name.startswith("~$")
+        (f for f in list(data_dir.glob("*.xlsx")) + list(data_dir.glob("*.csv"))
+         if not f.name.startswith("~$")),
+        key=lambda path: (path.name.casefold(), path.name),
     )
 
 

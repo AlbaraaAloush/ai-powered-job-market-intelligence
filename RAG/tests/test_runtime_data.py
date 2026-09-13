@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from data_loader import build_runtime_snapshot, load_all
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_mixed_case_source_names_keep_duplicate_precedence_across_platforms(tmp_path, compact):
+    # These scrapes share a dump and job ID. Capitalization must not change
+    # which row survives deduplication or invalidate an unchanged snapshot.
+    for name, company in [
+        ("linkedin_jobs_Qatar_1_June_2026.csv", "First scrape"),
+        ("linkedin_Jobs_Qatar_7_June_2026.csv", "Later scrape"),
+    ]:
+        pd.DataFrame([{"job_id": 1, "job_title": "Analyst", "company": company}]).to_csv(
+            tmp_path / name, index=False,
+        )
+    frame, _ = load_all(tmp_path, compact=compact, use_runtime=False)
+    assert len(frame) == 1
+    assert frame.iloc[0]["company"] == "First scrape"
 
 
 def test_runtime_snapshot_is_reused_and_invalidated(tmp_path):
