@@ -2,6 +2,20 @@ import type {
   DashboardData, DashboardDimension, DashboardScope, DatasetsResponse,
   JobPosting, PostingPage,
 } from './types';
+import { FILTER_LABELS, postingScope, type JobFilters } from './filters';
+
+export async function fetchFilterOptions(dumps: string[]): Promise<Record<keyof JobFilters, string[]>> {
+  const selected = new Set(dumps);
+  const records = (await getAnalytics()).filter(record => selected.has(record.dump));
+  const columns = {
+    sector: 'sector', employment_type: 'employmentType', career_level: 'careerLevel',
+    company: 'company', experience: 'experience', salary_bucket: 'salaryBracket',
+  } as const;
+  return Object.fromEntries(Object.keys(FILTER_LABELS).map(key => {
+    const field = key as keyof JobFilters;
+    return [field, [...new Set(records.map(record => record[columns[field]]).filter(isPresent))].sort()];
+  })) as Record<keyof JobFilters, string[]>;
+}
 
 const DATA_ROOT = '/data/dashboard';
 const SALARY_LABELS = [
@@ -138,10 +152,6 @@ function counts(values: Array<string | null | undefined>, limit?: number) {
     .map(([label, count]) => ({ label, count }));
 }
 
-function filterDashboardRecords(records: AnalyticsRecord[], dumps: string[], sector?: string) {
-  const selected = new Set(dumps);
-  return records.filter(record => selected.has(record.dump) && (!sector || caseEqual(record.sector, sector)));
-}
 
 function countrySignalRows(records: AnalyticsRecord[], field: 'remote' | 'nationalization') {
   const groups = new Map<string, AnalyticsRecord[]>();
@@ -290,14 +300,15 @@ function buildDashboard(records: AnalyticsRecord[]): DashboardData {
 }
 
 export async function fetchStaticDashboard(
-  params: { dumps: string[]; sector?: string },
+  params: { dumps: string[]; country?: string; timeline?: string } & JobFilters,
   signal?: AbortSignal,
 ): Promise<DashboardData> {
-  const key = `${[...params.dumps].sort().join(',')}::${params.sector ?? ''}`;
+  const { dumps, country, timeline, ...filters } = params;
+  const scope = { ...postingScope(filters), country, timeline };
+  const key = JSON.stringify([[...dumps].sort(), Object.entries(scope).sort()]);
   const cached = dashboardCache.get(key);
   if (cached) return cached;
-  const records = filterDashboardRecords(await getAnalytics(signal), params.dumps, params.sector);
-  if (!records.length) throw new Error('No data for selected filters');
+  const records = filterByScope(await getAnalytics(signal), dumps, scope);
   const result = buildDashboard(records);
   dashboardCache.set(key, result);
   return result;

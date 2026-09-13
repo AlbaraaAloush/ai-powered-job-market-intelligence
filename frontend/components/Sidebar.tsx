@@ -16,13 +16,15 @@ interface Props {
   onToggle: (id: string) => void;
   onSelectAll: () => void;
   onClearAll: () => void;
+  onSelectSource: (source: string) => void;
+  activeSource: string;
   onModelChange: (m: string) => void;
 }
 
 export default function Sidebar({
   dumps, timelines, selected, model, models, isOpen,
   showModel = true,
-  onToggle, onSelectAll, onClearAll, onModelChange,
+  onToggle, onSelectAll, onClearAll, onSelectSource, activeSource, onModelChange,
 }: Props) {
   const i18n = useDashboardI18n();
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -42,6 +44,8 @@ export default function Sidebar({
   const totalJobs = dumps
     .filter(d => selectedSet.has(d._dump_id))
     .reduce((s, d) => s + d.count, 0);
+
+  const sources = [...new Set(dumps.map((dump) => dump._source).filter(Boolean))].sort();
 
   // Click a country header to toggle the whole group:
   //   none → all selected,  any → all,  all → none.
@@ -85,6 +89,45 @@ export default function Sidebar({
             {i18n.t('sidebar.clearAll')}
           </button>
         </div>
+
+        {sources.length > 1 && (
+          <div className="mb-4">
+            <div className="app-sidebar__section-title">Source filter</div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter datasets by source">
+              <button
+                type="button"
+                onClick={() => onSelectSource('All')}
+                aria-pressed={activeSource === 'All'}
+                className="text-xs min-h-8 px-2 rounded-md border pill-hover focus-ring"
+                style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+              >
+                All sources
+              </button>
+              {sources.map((source) => {
+                const isActive = activeSource === source;
+                return (
+                  <button
+                    key={source}
+                    type="button"
+                    onClick={() => onSelectSource(source)}
+                    aria-pressed={isActive}
+                    className="text-xs min-h-8 px-2 rounded-md border pill-hover focus-ring"
+                    style={{
+                      borderColor: isActive ? 'var(--accent)' : 'var(--border)',
+                      background: isActive ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    {source}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed" style={{ color: 'var(--muted)' }}>
+              This scope applies to both the dashboard and chat.
+            </p>
+          </div>
+        )}
 
         {grouped.map(({ country, dumps: cDumps }) => {
           const selectedInGroup = cDumps.filter(d => selectedSet.has(d._dump_id)).length;
@@ -157,7 +200,7 @@ export default function Sidebar({
                           {i18n.value('timeline', d._timeline)}
                         </span>
                         <span className="block text-[10px] nums" style={{ color: 'var(--muted)' }}>
-                          {i18n.t('sidebar.jobCount', { count: i18n.number(d.count) })}
+                          {d._source} · {i18n.t('sidebar.jobCount', { count: i18n.number(d.count) })}
                         </span>
                       </span>
                     </button>

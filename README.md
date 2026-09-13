@@ -10,7 +10,7 @@ See [PRODUCTION_RAG.md](PRODUCTION_RAG.md) for tracing, grounding, evaluation, f
 [![Fanar](https://img.shields.io/badge/LLM-Fanar%20%7C%20OpenAI-purple)](https://api.fanar.qa)
 [![Next.js](https://img.shields.io/badge/Frontend-Next.js-black)](https://nextjs.org)
 
-A conversational AI assistant that answers natural language questions about the Gulf job market using **~30,000 real job postings from Bayt.com and LinkedIn** across Qatar, Saudi Arabia, and UAE — in both **English and Arabic**.
+A conversational AI assistant that answers natural-language questions about the Gulf job market using **55,616 job postings from Bayt.com and LinkedIn** across Qatar, Saudi Arabia, and the UAE — in both **English and Arabic**.
 
 ## Runtime flow
 
@@ -37,8 +37,8 @@ Qdrant. The optional local RAG backend can still be started separately.
 ### First-time setup (Windows / PowerShell)
 
 ```powershell
-git clone https://github.com/AlbaraaAloush/ai-powered-job-market-intelligence.git
-cd ai-powered-job-market-intelligence
+git clone https://github.com/mhdfaizjabir/jobmarket_bot.git
+cd jobmarket_bot
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r RAG\requirements.txt -r RAG\requirements-dev.txt
 npm --prefix frontend ci
@@ -63,7 +63,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -WithRag
 ```
 
-Open **http://localhost:3000/app**.
+Open **http://localhost:3000/app** for the dashboard or **http://localhost:3000/app/chat** for the RAG chat.
 
 Only after the source Excel/CSV files change, rebuild and commit the static
 snapshot:
@@ -93,7 +93,9 @@ Live LLM evaluation (uses API quota):
 .\scripts\test-local.ps1 -IncludeLiveRag
 ```
 
-The current live evaluation passes **52/52 scenarios** with a **9.4-second p95**.
+The live evaluation covers 52 English and Arabic scenarios: exact analytics,
+comparisons, trends, skills, salaries, follow-ups, semantic retrieval,
+abstention, prompt injection, and safety refusals.
 
 See [RAG/README.md](RAG/README.md) for full backend setup.
 
@@ -139,7 +141,13 @@ no Python backend, database, Qdrant, Docker, or AI API key.
 
 ---
 
-## Team
+## Repositories and team
+
+This repository is Faiz Jabir's personal, professor-ready copy of the project.
+The original shared team repository is maintained separately at
+[AlbaraaAloush/ai-powered-job-market-intelligence](https://github.com/AlbaraaAloush/ai-powered-job-market-intelligence).
+
+The team contributors are:
 
 | Role | Contributor |
 |---|---|

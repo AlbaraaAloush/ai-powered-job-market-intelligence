@@ -1,19 +1,40 @@
 {
   "schema_version": 1,
-  "data_version": "6e55ff7894030bca",
-  "generated_at": "2026-09-01T16:04:38.156517+00:00",
-  "record_count": 30795,
-  "analytics_file": "analytics-6e55ff7894030bca.json",
+  "data_version": "b811d73fc6f3d7dc",
+  "generated_at": "2026-09-07T16:41:47.711550+00:00",
+  "record_count": 55616,
+  "analytics_file": "analytics-b811d73fc6f3d7dc.json",
   "posting_files": {
+    "qatar_feb_2026": "postings/qatar-feb-2026-14aedae9.json",
+    "qatar_jun_2026": "postings/qatar-jun-2026-0bdab155.json",
     "qatar_linkedin_jun_2026": "postings/qatar-linkedin-jun-2026-de42e4a9.json",
     "qatar_may_2026": "postings/qatar-may-2026-ab5e8428.json",
+    "qatar_nov_2025": "postings/qatar-nov-2025-e6efb3f0.json",
+    "saudi_arabia_jun_2026": "postings/saudi-arabia-jun-2026-2abf1e51.json",
     "saudi_arabia_linkedin_jun_2026": "postings/saudi-arabia-linkedin-jun-2026-1d3c7913.json",
     "saudi_arabia_may_2026": "postings/saudi-arabia-may-2026-6a97ee40.json",
+    "uae_jun_2026": "postings/uae-jun-2026-d21fbd31.json",
     "uae_linkedin_jun_2026": "postings/uae-linkedin-jun-2026-9c550ec2.json",
     "uae_may_2026": "postings/uae-may-2026-2d857eb4.json"
   },
   "datasets": {
     "dumps": [
+      {
+        "_dump_id": "qatar_feb_2026",
+        "_country": "Qatar",
+        "_timeline": "Feb 2026",
+        "_dump_label": "Qatar Feb 2026",
+        "_source": "Bayt",
+        "count": 3544
+      },
+      {
+        "_dump_id": "qatar_jun_2026",
+        "_country": "Qatar",
+        "_timeline": "Jun 2026",
+        "_dump_label": "Qatar Jun 2026",
+        "_source": "Bayt",
+        "count": 2331
+      },
       {
         "_dump_id": "qatar_may_2026",
         "_country": "Qatar",
@@ -23,12 +44,36 @@
         "count": 2376
       },
       {
+        "_dump_id": "qatar_nov_2025",
+        "_country": "Qatar",
+        "_timeline": "Nov 2025",
+        "_dump_label": "Qatar Nov 2025",
+        "_source": "Bayt",
+        "count": 1880
+      },
+      {
+        "_dump_id": "saudi_arabia_jun_2026",
+        "_country": "Saudi Arabia",
+        "_timeline": "Jun 2026",
+        "_dump_label": "Saudi Arabia Jun 2026",
+        "_source": "Bayt",
+        "count": 7865
+      },
+      {
         "_dump_id": "saudi_arabia_may_2026",
         "_country": "Saudi Arabia",
         "_timeline": "May 2026",
         "_dump_label": "Saudi Arabia May 2026",
         "_source": "Bayt",
         "count": 8236
+      },
+      {
+        "_dump_id": "uae_jun_2026",
+        "_country": "UAE",
+        "_timeline": "Jun 2026",
+        "_dump_label": "UAE Jun 2026",
+        "_source": "Bayt",
+        "count": 9201
       },
       {
         "_dump_id": "uae_may_2026",
@@ -64,6 +109,8 @@
       }
     ],
     "timelines": [
+      "Nov 2025",
+      "Feb 2026",
       "May 2026",
       "Jun 2026"
     ],
@@ -74,14 +121,34 @@
   },
   "source_files": [
     {
+      "name": "bayt_jobs_Qatar_07_Jun_2026.xlsx",
+      "bytes": 2318779,
+      "modified_ns": 1788371132537527300
+    },
+    {
       "name": "bayt_jobs_Qatar_12_May_2026.xlsx",
       "bytes": 2540754,
       "modified_ns": 1779370232552265600
     },
     {
+      "name": "bayt_jobs_Qatar_22_Feb_2026.xlsx",
+      "bytes": 2554066,
+      "modified_ns": 1788371132478922400
+    },
+    {
+      "name": "bayt_jobs_Qatar_22_Nov_2025.xlsx",
+      "bytes": 2585767,
+      "modified_ns": 1788371132512826000
+    },
+    {
       "name": "bayt_jobs_Qatar_AR_12_May_2026.xlsx",
       "bytes": 2907448,
       "modified_ns": 1781594632883240200
+    },
+    {
+      "name": "bayt_jobs_Saudi_Arabia_07_Jun_2026.xlsx",
+      "bytes": 8490235,
+      "modified_ns": 1788371132661329800
     },
     {
       "name": "bayt_jobs_Saudi_Arabia_12_May_2026.xlsx",
@@ -92,6 +159,11 @@
       "name": "bayt_jobs_Saudi_Arabia_AR_12_May_2026.xlsx",
       "bytes": 11634478,
       "modified_ns": 1781594671836640400
+    },
+    {
+      "name": "bayt_jobs_UAE_07_Jun_2026.xlsx",
+      "bytes": 10897490,
+      "modified_ns": 1788371132760184700
     },
     {
       "name": "bayt_jobs_UAE_12_May_2026.xlsx",
