@@ -8,6 +8,7 @@ const SPRING = { type: 'spring' as const, duration: 0.55, bounce: 0 };
 
 const MEMBERS = [
   { id: 'm1', nameKey: 'mihna.teamMember1Name', roleKey: 'mihna.teamMember1Role' },
+  { id: 'ummar', nameKey: 'mihna.teamUmmarName' },
   { id: 'm2', nameKey: 'mihna.teamMember2Name' },
   { id: 'm3', nameKey: 'mihna.teamMember3Name' },
   { id: 'm4', nameKey: 'mihna.teamMember4Name' },
@@ -39,7 +40,7 @@ export function Team() {
             {t('mihna.teamTitle')}
           </h2>
         </Reveal>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 md:grid-cols-5 md:gap-x-6">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-12 sm:grid-cols-3 lg:grid-cols-6 md:gap-x-6">
           {MEMBERS.map((m, i) => {
             const name = t(m.nameKey);
             const role = lang === 'en' && m.roleKey ? t(m.roleKey) : undefined;

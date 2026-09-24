@@ -1,7 +1,4 @@
-# GCC Job Market Intelligence System
-### RAG-Powered Labor Market Analytics Chatbot
-
-See [PRODUCTION_RAG.md](PRODUCTION_RAG.md) for tracing, grounding, evaluation, feedback, and ingestion controls.
+# Mihna: AI-Powered Job Market Intelligence
 
 > Built at **HBKU (Hamad Bin Khalifa University)** · Data sources: **Bayt.com + LinkedIn** · QCRI Internship 2026
 
@@ -10,7 +7,13 @@ See [PRODUCTION_RAG.md](PRODUCTION_RAG.md) for tracing, grounding, evaluation, f
 [![Fanar](https://img.shields.io/badge/LLM-Fanar%20%7C%20OpenAI-purple)](https://api.fanar.qa)
 [![Next.js](https://img.shields.io/badge/Frontend-Next.js-black)](https://nextjs.org)
 
-A conversational AI assistant that answers natural-language questions about the Gulf job market using **55,616 job postings from Bayt.com and LinkedIn** across Qatar, Saudi Arabia, and the UAE — in both **English and Arabic**.
+Mihna is a research platform for exploring job-market data across **Qatar, Saudi Arabia, and the UAE**. It combines data preparation, interactive dashboards, country and period comparisons, and optional **English/Arabic question answering** over job postings from **Bayt.com and LinkedIn**.
+
+- **Explore advertised demand:** analyze job categories, skills, salaries, experience, career levels, education, employment types, and other posting attributes.
+- **Compare and inspect:** filter by country, period, and source; drill into supporting postings; export results as CSV or JSON.
+- **Ask the data:** combine structured analytics and retrieval-augmented generation (RAG) for questions grounded in the selected datasets.
+
+The bundled snapshot contains **55,616 posting records across 11 source-country-period datasets**. Records from different periods may overlap; this is not a count of unique vacancies across all dates.
 
 ## Runtime flow
 
@@ -34,11 +37,22 @@ Qdrant. The optional local RAG backend can still be started separately.
 
 ## Quick Start
 
-### First-time setup (Windows / PowerShell)
+### Dashboard only (Node.js 20.9+ and npm)
+
+```sh
+git clone https://github.com/AlbaraaAloush/ai-powered-job-market-intelligence.git
+cd ai-powered-job-market-intelligence
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+Open **http://localhost:3000** for the landing page or **http://localhost:3000/app** for the dashboard. The committed dashboard data requires no Python backend or API keys. Chat is disabled by default.
+
+### Optional full app setup (Windows / PowerShell)
 
 ```powershell
-git clone https://github.com/mhdfaizjabir/jobmarket_bot.git
-cd jobmarket_bot
+git clone https://github.com/AlbaraaAloush/ai-powered-job-market-intelligence.git
+cd ai-powered-job-market-intelligence
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r RAG\requirements.txt -r RAG\requirements-dev.txt
 npm --prefix frontend ci
@@ -81,7 +95,7 @@ Feedback and anonymous usage events persist to local SQLite by default. Set
 persistent chat sessions across backend restarts. No account, IP address, or raw
 question text is stored in usage events.
 
-Run the verified local test suite with:
+Run the local test suite with:
 
 ```powershell
 .\scripts\test-local.ps1 -IncludeRag
@@ -112,8 +126,9 @@ no Python backend, database, Qdrant, Docker, or AI API key.
 
 | Document | Covers |
 |---|---|
+| [PRODUCTION_RAG.md](PRODUCTION_RAG.md) | Tracing, grounding, evaluation, feedback, and ingestion controls |
 | [PROJECT_SPEC.md](PROJECT_SPEC.md) | Living spec + full sprint history (what shipped, when, why) |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | How the system fits together — request/RAG/filter/SQL/Qdrant flows |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | How the system fits together: request/RAG/filter/SQL/Qdrant flows |
 | [API.md](API.md) | Every HTTP endpoint, request/response shapes, validation rules |
 | [SECURITY.md](SECURITY.md) | Threat model, implemented controls, pre-deploy checklist |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Local / Docker / production (nginx) deployment |
@@ -124,36 +139,23 @@ no Python backend, database, Qdrant, Docker, or AI API key.
 
 ## Known Limitations
 
-1. **Salary data is sparse** — only ~7% of postings disclose salary. All salary stats are based on this subset.
-2. **Data is a snapshot** — postings scraped at specific dates. Job market changes daily.
-3. **Source coverage** — covers Bayt.com and LinkedIn only, not the full GCC market.
-4. **Arabic bilingual enrichment** — requires the corresponding `_AR_` file to be present for each Bayt EN file. LinkedIn has no Arabic portal equivalent.
+1. **Salary data is sparse**: salary statistics cover only postings that disclose salary, not all jobs.
+2. **Data is a snapshot**: postings scraped at specific dates. Job market changes daily.
+3. **Source coverage**: covers Bayt.com and LinkedIn only, not the full GCC market.
+4. **Arabic bilingual enrichment**: requires the corresponding `_AR_` file to be present for each Bayt EN file. LinkedIn has no Arabic portal equivalent.
 
 ---
 
-## Research Foundation
-
-| Paper | Contribution |
-|---|---|
-| **HyST (2025)** — Hybrid Retrieval over Semi-Structured Tabular Data | Query decomposition into SQL + semantic layers |
-| **NLP-based Job Market Analysis** | Skill extraction, sector classification |
-| **LLM Skill Extraction** | Structured extraction from unstructured job descriptions |
-
----
-
-## Repositories and team
-
-This repository is Faiz Jabir's personal, professor-ready copy of the project.
-The original shared team repository is maintained separately at
-[AlbaraaAloush/ai-powered-job-market-intelligence](https://github.com/AlbaraaAloush/ai-powered-job-market-intelligence).
+## Team
 
 The team contributors are:
 
 | Role | Contributor |
 |---|---|
-| RAG System, Pipeline, UI, Evaluation | Faiz Jabir |
-| Data Collection & Preprocessing | Albaraa |
-| Front-End |Yahya |
-| Supervision | Dr. Hamdy |
+| RAG System, Pipeline, UI, Evaluation | Mohammad Faiz Jabir |
+| Data Collection & Preprocessing | Albaraa Aloush |
+| Front-End | Yahya Taha |
+| Supervision | Dr. Hamdy Mubarak |
+| Contributor | Ummar Abbas |
 
-**Institution:** Hamad Bin Khalifa University (HBKU) — QCRI Summer Internship 2026
+**Institution:** Hamad Bin Khalifa University (HBKU): QCRI Summer Internship 2026

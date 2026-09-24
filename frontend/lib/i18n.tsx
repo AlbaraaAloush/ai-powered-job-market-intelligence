@@ -58,6 +58,7 @@ const dictionaries: Record<Lang, Dict> = {
 
       teamTitle: "Team",
       teamMember1Name: "Dr. Hamdy Mubarak",
+      teamUmmarName: "Ummar Abbas",
       teamMember1Role: "Principal Software Engineer",
       teamMember2Name: "Abubakr Mohamed",
       teamMember2Role: "",
@@ -160,6 +161,7 @@ const dictionaries: Record<Lang, Dict> = {
 
       teamTitle: "الفريق",
       teamMember1Name: "د. حمدي مبارك",
+      teamUmmarName: "Ummar Abbas",
       teamMember1Role: "مهندس برمجيّات أوّل",
       teamMember2Name: "أبوبكر محمد",
       teamMember2Role: "",
