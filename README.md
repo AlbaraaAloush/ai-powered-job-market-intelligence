@@ -154,7 +154,7 @@ The team contributors are:
 |---|---|
 | RAG System, Pipeline, UI, Evaluation | Mohammad Faiz Jabir |
 | Data Collection & Preprocessing | Albaraa Aloush |
-| Front-End | Yahya Taha |
+| Frontend Engineering & Data Validation | Yahya Taha |
 | Supervision | Dr. Hamdy Mubarak |
 | Contributor | Ummar Abbas |
 
